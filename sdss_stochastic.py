@@ -58,7 +58,7 @@ class SDSS_stochastic():
                 
                 if dict_obj_shape is ():
                     string_return = string_return + (str(entry) + ": ").ljust(key_width) + str(dict_obj) + "\n"
-                elif dict_obj_shape_len == 3:
+                elif dict_obj_shape_len >= 3 or dict_obj_shape_len == 2 and dict_obj_shape[1] > 1:
                     string_return = string_return + (str(entry) + ": ").ljust(key_width) + str(dict_obj_shape) + "\n"
                 elif dict_obj_shape_len == 1 or dict_obj_shape[1] == 1:
                     string_return = string_return + (str(entry) + ": ").ljust(key_width) + str(dict_obj_shape) + ", Max/Min: " + "{:.2f}".format(np.max(dict_obj)) + " / " + "{:.2f}".format(np.min(dict_obj)) + "\n"
@@ -80,13 +80,35 @@ class SDSS_stochastic():
         else:
             print("\n______new attributes______\n")
             print(self.attribute_string["string_return"].split("\n", self.attribute_string["string_return_previous"].count("\n"))[-1])
+
+
+    def gauss_vector(self, g_in, N_deg, i_n = 0, i_m = 1):
+            
+        i=0
+        i_line=0
+
+        g = np.zeros(2*np.sum(np.arange(1,N_deg+1)+1) - N_deg)
+
+        for n in range(1,N_deg+1):
+            for m in range(0,n+1):
+                if m == 0: 
+                    g[i]=g_in[i_line,i_n]
+                    i += 1
+                    i_line += 1            
+                else:
+                    g[i]=g_in[i_line,i_n]
+                    g[i+1]=g_in[i_line,i_m]
+                    i+= 2  
+                    i_line += 1
+                        
+        return g
         
-    
-    def grid(self, r_grid, grid_type, calc_sph_d = False):
+        
+    def grid(self, r_grid, grid, calc_sph_d = False):
         
         # Initialize
         self.r_grid = r_grid
-        self.grid_type = grid_type
+        self.grid = grid
         self.sph_d = None
         
         N_grid_orig = self.N_grid
@@ -94,7 +116,7 @@ class SDSS_stochastic():
         check_flag = False
         
         # Generate equal area grid
-        if grid_type == "equal_area":
+        if grid == "equal_area":
             while check_flag is False:
                 points_polar = sds_util.eq_point_set_polar(self.N_grid) # Compute grid with equal area grid functions
                 
@@ -121,7 +143,7 @@ class SDSS_stochastic():
             self.handle_poles()
         
         # Generate Gauss-Legendre quadrature grid
-        elif grid_type == "gauss_leg":
+        elif grid == "gauss_leg":
             self.gauss_leg_n_from_N = int(np.ceil(np.sqrt(self.N_grid/2))) # Approximate required Gauss-Legendre grid size from defined N_grid
             gauss_leg = np.polynomial.legendre.leggauss(self.gauss_leg_n_from_N) # Use built-in numpy function to generate grid
             
@@ -141,7 +163,7 @@ class SDSS_stochastic():
             
             
         # Generate Lebedev quadrature grid
-        elif grid_type == "lebedev":
+        elif grid == "lebedev":
             import quadpy
             
             # Lebedev grid generation from quadpy is limited to the following two choices
@@ -158,7 +180,12 @@ class SDSS_stochastic():
             self.weights = np.ravel(scheme.weights) # Get weights for quadrature on grid
             self.N_grid = len(self.weights) # Update N_grid according to Lebedev grid
         
-        
+        else:
+            self.lon = grid[:,0]
+            self.lat = grid[:,1]
+            
+            self.N_grid = len(self.lon)
+            
         # Compute spherical distances between all points on grid if required
         if calc_sph_d is True:     
             lon_mesh, lat_mesh = np.meshgrid(self.lon, self.lat, indexing='ij')
@@ -737,7 +764,7 @@ class SDSS_stochastic():
         
         # Set model in class
         self.model = model
-        self.a = a
+        self.a_sv = a
         self.C0 = C0
         self.C1 = C1
         self.C2 = C2
