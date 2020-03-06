@@ -239,7 +239,10 @@ class SDSS_stochastic():
         self.data = np.zeros((self.N_grid,))
         self.data = data.copy() 
         self.r_grid_repeat = np.ones(self.N_grid,)*self.r_grid
-
+        
+        # Target statistics
+        self.target_var = np.var(self.data)
+        self.target_mean = 0.0
 
     def condtab(self, normsize = 100, model_hist = False, table = 'rough'):
         """
@@ -249,9 +252,9 @@ class SDSS_stochastic():
         from scipy.stats import norm, laplace
         from sklearn.preprocessing import QuantileTransformer
         
-        # Target statistics
-        self.target_var = np.var(self.data)
-        self.target_mean = 0.0
+        ## Target statistics
+        #self.target_var = np.var(self.data)
+        #self.target_mean = 0.0
         
         # Linearly spaced value array with start/end very close to zero/one
         start = 1e-16 #Python min
@@ -532,7 +535,8 @@ class SDSS_stochastic():
         '''
         semi-variogram LUT generation
         '''
-        vario_lut = np.longdouble(np.zeros([self.N_grid, self.N_grid]))
+        #vario_lut = np.longdouble(np.zeros([self.N_grid, self.N_grid]))
+        vario_lut = np.double(np.zeros([self.N_grid, self.N_grid]))
         
         for i in range(0,self.N_grid):
             vario_lut[:,i] = self.semivariogram_model(self.sph_d[i,:], a, C0, C1, C2=C2, C3=C3, sv_mode=sv_model)
@@ -769,3 +773,35 @@ class SDSS_stochastic():
         self.C1 = C1
         self.C2 = C2
         self.C3 = C3
+        
+
+    def sv_zs(self,N,N_sim,zs,sort_d,n_lags,max_cloud):
+
+        """
+        NEW Function for calculating semivariogram from simulations by taking the mean of
+        equidistant lags
+        """
+
+        pics_zs = np.zeros([n_lags-1,N_sim])
+        for j in np.arange(0,N_sim):
+            cloud_all = np.zeros([N,N])
+            for i in np.arange(0,N):
+                cloud = (zs[i,j]-zs[:,j])**2
+                cloud_all[i,:] = cloud
+
+            pics_c = np.zeros(n_lags-1)
+            cloud_ravel = np.ravel(cloud_all)[sort_d]
+
+            pic_zero = 0.5*np.mean(cloud_ravel[:N])
+            pics_c[0] = pic_zero
+
+            lags_geom = np.linspace(N+2,max_cloud,n_lags,dtype=int)
+
+            for n in np.arange(0,n_lags-2):
+
+                pic = 0.5*np.mean(cloud_ravel[lags_geom[n]:lags_geom[n+1]:1])
+                pics_c[n+1] = pic
+
+            pics_zs[:,j] = pics_c    
+
+        self.pics_zs = pics_zs
