@@ -1,3 +1,6 @@
 [submodule "mikkel_tools"]
 	path = mikkel_tools
 	url = https://github.com/mikkelotzen/mikkel_tools.git
+[submodule "lithosphere_prior"]
+	path = lithosphere_prior
+	url = https://github.com/mikkelotzen/lithosphere_prior.git
