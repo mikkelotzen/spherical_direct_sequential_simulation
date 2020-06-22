@@ -9,60 +9,27 @@ import os
 class SDSS(MiClass):   
     """ Class for performing spherical direct sequential simulation """
 
-    def __init__(self, comment, N_grid = 1000, N_SH = 60, sim_type = "core", sat_height = 350):
+    def __init__(self, comment, N_SH = 60, sim_type = "core", sat_height = 350):
         super().__init__(sat_height = sat_height)
         self.comment = comment
         self.class_abs_path = os.path.dirname(__file__) 
 
         # Initial constants related to spherical harmonics and Earth system size.
-        #self.a = 6371.2
-        #self.r_cmb = 3480.0
-        #self.r_sat = self.a + sat_height
-        #self.rad = np.pi/180
-        #self.mu0 = 4*np.pi*10**(-7)*10**9/10**3 # Units scaled to nT*km/A    
-        self.N_grid = N_grid
         self.N_SH = N_SH
         self.sim_type = sim_type
         
-        # Start attribute string for printing class
-        #self.attribute_string = {"string_return":"", "string_return_previous":"", "keys":list(), "keys_old":list()}
-
-
-    def gauss_vector(self, g_in, N_deg, i_n = 0, i_m = 1):
-            
-        i=0
-        i_line=0
-
-        g = np.zeros(2*np.sum(np.arange(1,N_deg+1)+1) - N_deg)
-
-        for n in range(1,N_deg+1):
-            for m in range(0,n+1):
-                if m == 0: 
-                    g[i]=g_in[i_line,i_n]
-                    i += 1
-                    i_line += 1            
-                else:
-                    g[i]=g_in[i_line,i_n]
-                    g[i+1]=g_in[i_line,i_m]
-                    i+= 2  
-                    i_line += 1
-                        
-        return g
         
-        
-    def grid(self, r_grid, grid, calc_sph_d = False):
-        
+    def grid(self, r_grid, grid, calc_sph_d = False, N_grid = 1000):
         # Initialize
         self.r_grid = r_grid
         self.grid = grid
         self.sph_d = None
         
-        N_grid_orig = self.N_grid
-        
-        check_flag = False
-        
         # Generate equal area grid
         if isinstance(grid,str):
+            self.N_grid = N_grid
+            N_grid_orig = self.N_grid
+            check_flag = False
             if grid == "equal_area":
                 while check_flag is False:
                     points_polar = mt_util.eq_point_set_polar(self.N_grid) # Compute grid with equal area grid functions
@@ -193,12 +160,8 @@ class SDSS(MiClass):
         self.target_mean = 0.0
 
 
-    def generate_map(self, *args):
-        
-        # Generate design matrix for grid
-        #A_r, A_theta, A_phi = gt.design_SHA(self.r_grid/self.a, (90.0-self.lat)*self.rad, self.lon*self.rad, self.N_SH)
-        #G = np.vstack((A_r, A_theta, A_phi))
-            
+    def generate_map(self, grid_type = "glq", *args):
+
         # Load Gauss coefficients from data files
         if np.logical_or(self.sim_type == "core", self.sim_type == "sat"):
             Gauss_in = np.loadtxt('sh_models/Julien_Gauss_JFM_E-8_snap.dat')
@@ -211,23 +174,27 @@ class SDSS(MiClass):
         
         # Compute Gauss coefficients as vector
         g = mt_util.gauss_vector(Gauss_in, self.N_SH, i_n = 2, i_m = 3)
-        
-        # Generate field data
-        #data_dynamo = np.matrix(G)*np.matrix(g).T
-        #data_dynamo = np.matmul(G,g.T)
-        #data = np.array(data_dynamo[:len(A_r)]).ravel()
-        #self.data = np.zeros((self.N_grid,))
-        #self.data = data.copy() 
 
-        self.ensemble_B(g, nmax = self.N_SH, N_mf = 2, mf = True, nmf = False, r_at = self.r_grid, grid_type = "glq")
-        self.data = self.B_ensemble_glq[:,0]
+        # Generate field
+        self.ensemble_B(g, nmax = self.N_SH, N_mf = 2, mf = True, nmf = False, r_at = self.r_grid, grid_type = grid_type)
+        if grid_type == "glq":
+            self.data = self.B_ensemble_glq[:,0]
+            del self.B_ensemble_glq
+        elif grid_type == "even":
+            self.data = self.B_ensemble_even[:,0]
+            del self.B_ensemble_even
+        elif grid_type == "eqa":
+            self.data = self.B_ensemble_eqa[:,0]
+            del self.B_ensemble_eqa
+
         self.r_grid_repeat = np.ones(self.N_grid,)*self.r_grid
         
         # Target statistics
         self.target_var = np.var(self.data)
+        self.target_mean_true = np.mean(self.data)
         self.target_mean = 0.0
         
-        del self.B_ensemble_glq
+        
 
     def condtab(self, normsize = 100, model_hist = False, table = 'rough'):
         """
@@ -236,10 +203,6 @@ class SDSS(MiClass):
         import numpy as np
         from scipy.stats import norm, laplace
         from sklearn.preprocessing import QuantileTransformer
-        
-        ## Target statistics
-        #self.target_var = np.var(self.data)
-        #self.target_mean = 0.0
         
         # Linearly spaced value array with start/end very close to zero/one
         start = 1e-16 #Python min
