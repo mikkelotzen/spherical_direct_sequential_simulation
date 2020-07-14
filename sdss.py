@@ -118,8 +118,8 @@ class SDSS(MiClass):
         self.n_regions = np.delete(self.n_regions,-1,1)
         self.n_regions = np.delete(self.n_regions,0,1)
         
-        self.s_cap = np.delete(self.s_cap,-1,1)
-        self.s_cap = np.delete(self.s_cap,0,1)
+        self.s_cap = np.delete(self.s_cap,-1,0)
+        self.s_cap = np.delete(self.s_cap,0,0)
         
         self.N_grid = idx_end_core-1
         
@@ -160,6 +160,29 @@ class SDSS(MiClass):
         self.target_mean = 0.0
 
 
+    def load_swarm(self, dataset):
+        # Load swarm samples
+        data_swarm = {"SW_A":np.loadtxt("swarm_data/SW_A_AprilMayJune18_dark_quiet_NEC.txt",comments="%"), "SW_B":np.loadtxt("swarm_data/SW_B_AprilMayJune18_dark_quiet_NEC.txt",comments="%"), "SW_C":np.loadtxt("swarm_data/SW_C_AprilMayJune18_dark_quiet_NEC.txt",comments="%")}
+        if dataset == "A":
+            data_swarm = {"obs":data_swarm["SW_A"][:,13], "radius":data_swarm["SW_A"][:,1], "theta":(data_swarm["SW_A"][:,2]), "phi":data_swarm["SW_A"][:,3], "N":data_swarm["SW_A"][:,13].shape[0]}
+        elif dataset == "B":
+            data_swarm = {"obs":data_swarm["SW_B"][:,13], "radius":data_swarm["SW_B"][:,1], "theta":(data_swarm["SW_B"][:,2]), "phi":data_swarm["SW_B"][:,3], "N":data_swarm["SW_B"][:,13].shape[0]}
+        elif dataset == "C":
+            data_swarm = {"obs":data_swarm["SW_C"][:,13], "radius":data_swarm["SW_C"][:,1], "theta":(data_swarm["SW_C"][:,2]), "phi":data_swarm["SW_C"][:,3], "N":data_swarm["SW_C"][:,13].shape[0]}
+        elif dataset == "ABC":
+            data_swarm = {"obs":np.hstack((data_swarm["SW_A"][:,13],data_swarm["SW_B"][:,13],data_swarm["SW_C"][:,13])),
+                                "radius":np.hstack((data_swarm["SW_A"][:,1],data_swarm["SW_B"][:,1],data_swarm["SW_C"][:,1])),
+                                "theta":np.hstack(((90.0-data_swarm["SW_A"][:,2]),(90.0-data_swarm["SW_B"][:,2]),(90.0-data_swarm["SW_C"][:,2]))), 
+                                "phi":np.hstack((data_swarm["SW_A"][:,3],data_swarm["SW_B"][:,3],data_swarm["SW_C"][:,3])), 
+                                "N":np.hstack((data_swarm["SW_A"][:,13],data_swarm["SW_B"][:,13],data_swarm["SW_C"][:,13])).shape[0]}
+
+        self.swarm_theta = data_swarm["theta"]
+        self.swarm_phi = data_swarm["phi"]
+        self.swarm_radius = data_swarm["radius"]
+        self.swarm_obs = data_swarm["obs"]
+        self.swarm_N = data_swarm["N"]
+
+
     def generate_map(self, grid_type = "glq", *args):
 
         # Load Gauss coefficients from data files
@@ -186,14 +209,17 @@ class SDSS(MiClass):
         elif grid_type == "eqa":
             self.data = self.B_ensemble_eqa[:,0]
             del self.B_ensemble_eqa
+        elif grid_type == "swarm":
+            self.data = self.B_ensemble_swarm[:,0]
 
-        self.r_grid_repeat = np.ones(self.N_grid,)*self.r_grid
+        if grid_type != "swarm":
+            self.r_grid_repeat = np.ones(self.N_grid,)*self.r_grid
         
         # Target statistics
         self.target_var = np.var(self.data)
         self.target_mean_true = np.mean(self.data)
         self.target_mean = 0.0
-        
+        self.g_prior = g
         
 
     def condtab(self, normsize = 100, model_hist = False, table = 'rough'):
