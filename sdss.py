@@ -160,7 +160,7 @@ class SDSS(MiClass):
         self.target_mean = 0.0
 
 
-    def load_swarm(self, dataset):
+    def load_swarm(self, dataset, use_obs = False):
         # Load swarm samples
         data_swarm = {"SW_A":np.loadtxt("swarm_data/SW_A_AprilMayJune18_dark_quiet_NEC.txt",comments="%"), "SW_B":np.loadtxt("swarm_data/SW_B_AprilMayJune18_dark_quiet_NEC.txt",comments="%"), "SW_C":np.loadtxt("swarm_data/SW_C_AprilMayJune18_dark_quiet_NEC.txt",comments="%")}
         if dataset == "A":
@@ -172,7 +172,7 @@ class SDSS(MiClass):
         elif dataset == "ABC":
             data_swarm = {"obs":np.hstack((data_swarm["SW_A"][:,13],data_swarm["SW_B"][:,13],data_swarm["SW_C"][:,13])),
                                 "radius":np.hstack((data_swarm["SW_A"][:,1],data_swarm["SW_B"][:,1],data_swarm["SW_C"][:,1])),
-                                "theta":np.hstack(((90.0-data_swarm["SW_A"][:,2]),(90.0-data_swarm["SW_B"][:,2]),(90.0-data_swarm["SW_C"][:,2]))), 
+                                "theta":np.hstack(((data_swarm["SW_A"][:,2]),(data_swarm["SW_B"][:,2]),(data_swarm["SW_C"][:,2]))), 
                                 "phi":np.hstack((data_swarm["SW_A"][:,3],data_swarm["SW_B"][:,3],data_swarm["SW_C"][:,3])), 
                                 "N":np.hstack((data_swarm["SW_A"][:,13],data_swarm["SW_B"][:,13],data_swarm["SW_C"][:,13])).shape[0]}
 
@@ -182,6 +182,12 @@ class SDSS(MiClass):
         self.swarm_obs = data_swarm["obs"]
         self.swarm_N = data_swarm["N"]
 
+        if use_obs == True:
+            self.data = self.swarm_obs
+            # Target statistics
+            self.target_var = np.var(self.data)
+            self.target_mean_true = np.mean(self.data)
+            self.target_mean = 0.0
 
     def generate_map(self, grid_type = "glq", *args):
 
@@ -222,7 +228,7 @@ class SDSS(MiClass):
         self.g_prior = g
         
 
-    def condtab(self, normsize = 100, model_hist = False, table = 'rough'):
+    def condtab(self, normsize = 1000, model_hist = False, table = 'rough'):
         """
         Conditional distribution table
         """
