@@ -19,7 +19,7 @@ class SDSS(MiClass):
         self.sim_type = sim_type
         
         
-    def grid(self, r_grid, grid, calc_sph_d = False, N_grid = 1000):
+    def make_grid(self, r_grid, grid, calc_sph_d = False, N_grid = 1000):
         # Initialize
         self.r_grid = r_grid
         self.grid = grid
@@ -283,7 +283,10 @@ class SDSS(MiClass):
         self.CQF_var = CQF_var
         self.rangv = rangv
         self.rangn = rangn
-        
+        self.condtab_normsize = normsize
+        self.condtab_model_hist = model_hist
+        self.condtab_table = table
+
         #condtab = {"target variance":target_var, "target variance_dat":target_var_dat, "target mean":target_mean, "target mean_dat":target_mean_dat, "QF norm range":rangn, "QF var range":rangv, "CQF dist":CQF_dist, "CQF mean":CQF_mean, "CQF var":CQF_var, "target normscore":vrg, "compiler":setup["condtab_compiler"], "normsize":normsize, "start":start}
 
     def find_sort_d(self, max_dist = 2000):
@@ -529,6 +532,11 @@ class SDSS(MiClass):
         from scipy.optimize import curve_fit
         #from sklearn.preprocessing import normalize
         
+        self.sv_model_lags = model_lags
+        self.sv_max_dist = max_dist
+        self.sv_lag_length = lag_length
+        self.sv_zero_nugget = zero_nugget
+
         self.data_variogram(max_dist=max_dist)
         
         self.max_cloud = len(self.sort_d)
