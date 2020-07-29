@@ -197,6 +197,16 @@ class SDSS(MiClass):
 
         elif self.sim_type == "surface":
             Gauss_in = np.loadtxt('sh_models/Masterton_13470_total_it1_0.glm')
+        elif self.sim_type == "separation":
+            Gauss_in_core = np.loadtxt('sh_models/Julien_Gauss_JFM_E-8_snap.dat')
+            Gauss_in_lithos = np.loadtxt('sh_models/Masterton_13470_total_it1_0.glm')
+            Gauss_in_zip = (Gauss_in_core,Gauss_in_lithos)
+
+            idx_zip_min = np.argmin((Gauss_in_core.shape[0],Gauss_in_lithos.shape[0]))
+            idx_zip_max = np.argmax((Gauss_in_core.shape[0],Gauss_in_lithos.shape[0]))
+
+            Gauss_in = Gauss_in_zip[idx_zip_max].copy()
+            Gauss_in[:Gauss_in_zip[idx_zip_min].shape[0],2:] += Gauss_in_zip[idx_zip_min][:,2:]
  
         else:
             Gauss_in = np.loadtxt(args[0], comments='%')
