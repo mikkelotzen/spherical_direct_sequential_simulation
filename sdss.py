@@ -9,13 +9,14 @@ import os
 class SDSS(MiClass):   
     """ Class for performing spherical direct sequential simulation """
 
-    def __init__(self, comment, N_SH = 60, sim_type = "core", sat_height = 350):
+    def __init__(self, comment, N_SH = 60, sim_type = "core", sat_height = 350, N_SH_secondary = None):
         super().__init__(sat_height = sat_height)
         self.comment = comment
         self.class_abs_path = os.path.dirname(__file__) 
 
         # Initial constants related to spherical harmonics and Earth system size.
         self.N_SH = N_SH
+        self.N_SH_secondary = N_SH_secondary
         self.sim_type = sim_type
         
         
@@ -197,25 +198,34 @@ class SDSS(MiClass):
 
         elif self.sim_type == "surface":
             Gauss_in = np.loadtxt('sh_models/Masterton_13470_total_it1_0.glm')
+
         elif self.sim_type == "separation":
             Gauss_in_core = np.loadtxt('sh_models/Julien_Gauss_JFM_E-8_snap.dat')
             Gauss_in_lithos = np.loadtxt('sh_models/Masterton_13470_total_it1_0.glm')
-            Gauss_in_zip = (Gauss_in_core,Gauss_in_lithos)
 
-            idx_zip_min = np.argmin((Gauss_in_core.shape[0],Gauss_in_lithos.shape[0]))
-            idx_zip_max = np.argmax((Gauss_in_core.shape[0],Gauss_in_lithos.shape[0]))
+            g_c = mt_util.gauss_vector(Gauss_in_core, self.N_SH, i_n = 2, i_m = 3)
+            g_l = mt_util.gauss_vector(Gauss_in_lithos, self.N_SH_secondary, i_n = 2, i_m = 3)
 
-            Gauss_in = Gauss_in_zip[idx_zip_max].copy()
-            Gauss_in[:Gauss_in_zip[idx_zip_min].shape[0],2:] += Gauss_in_zip[idx_zip_min][:,2:]
- 
+            g_zip = (g_c,g_l)
+
+            idx_zip_min = np.argmin((g_c.shape[0],g_l.shape[0]))
+            idx_zip_max = np.argmax((g_c.shape[0],g_l.shape[0]))
+
+            g = g_zip[idx_zip_max].copy()
+            g[:g_zip[idx_zip_min].shape[0]] += g_zip[idx_zip_min]
+
+            N_SH_max = np.max((self.N_SH, self.N_SH_secondary))
+
         else:
             Gauss_in = np.loadtxt(args[0], comments='%')
-        
-        # Compute Gauss coefficients as vector
-        g = mt_util.gauss_vector(Gauss_in, self.N_SH, i_n = 2, i_m = 3)
 
+        if self.sim_type != "separation":
+            # Compute Gauss coefficients as vector
+            g = mt_util.gauss_vector(Gauss_in, self.N_SH, i_n = 2, i_m = 3)
+            N_SH_max = self.N_SH
+            
         # Generate field
-        self.ensemble_B(g, nmax = self.N_SH, N_mf = 2, mf = True, nmf = False, r_at = self.r_grid, grid_type = grid_type)
+        self.ensemble_B(g, nmax = N_SH_max, N_mf = 2, mf = True, nmf = False, r_at = self.r_grid, grid_type = grid_type)
         if grid_type == "glq":
             self.data = self.B_ensemble_glq[:,0]
             del self.B_ensemble_glq
