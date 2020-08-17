@@ -1,5 +1,7 @@
 from mikkel_tools.MiClass import MiClass
 import mikkel_tools.utility as mt_util
+import matplotlib.pyplot as plt
+import pyshtools
 
 import numpy as np
 import GMT_tools as gt
@@ -248,7 +250,7 @@ class SDSS(MiClass):
         self.g_prior = g
         
 
-    def condtab(self, normsize = 1000, model_hist = False, table = 'rough'):
+    def condtab(self, normsize = 1001, model_hist = False, table = 'rough', quantiles = None):
         """
         Conditional distribution table
         """
@@ -283,7 +285,8 @@ class SDSS(MiClass):
         CQF_var = np.zeros((len(rangn),len(rangv)))
         
         # Perform quantile transformation
-        quantiles = int(0.1*len(data_sorted))
+        if quantiles == None:
+            quantiles = int(0.1*len(data_sorted))
         
         # QuantileTransformer setup
         qt = QuantileTransformer(n_quantiles=quantiles, random_state=None, output_distribution='normal',subsample=10e8)
@@ -546,7 +549,7 @@ class SDSS(MiClass):
         return vario_lut
 
 
-    def semivar(self, model_lags = 'all', model = 'nested_sph_exp_gau', max_dist = 11000, lag_length = 5, nolut = False, bounds = True, zero_nugget = False, set_model = False):
+    def semivar(self, model_lags = 'all', model = 'nested_sph_exp_gau', max_dist = 11000, lag_length = 5, nolut = False, bounds = True, zero_nugget = False, set_model = False, hit_target_var = False):
         from math import inf
         import numpy as np
         from scipy.optimize import curve_fit
@@ -596,6 +599,9 @@ class SDSS(MiClass):
                 if zero_nugget == False:
                     def semivar_return(lags_model, a, C0, C1):
                         return C0 + C1*(1.5*lags_model/a-0.5*(lags_model/a)**3)
+                elif hit_target_var == True:
+                    def semivar_return(lags_model, a):
+                        return (1.5*lags_model/a-0.5*(lags_model/a)**3) 
                 else:
                     def semivar_return(lags_model, a, C1):
                         return C1*(1.5*lags_model/a-0.5*(lags_model/a)**3)              
@@ -617,6 +623,9 @@ class SDSS(MiClass):
                 if zero_nugget == False:
                     def semivar_return(lags_model, a, C0, C1):
                         return C0 + C1*(1-np.exp(-3*lags_model/a))
+                elif hit_target_var == True:
+                    def semivar_return(lags_model, a):
+                        return (1-np.exp(-3*lags_model/a))   
                 else:
                     def semivar_return(lags_model, a, C1):
                         return C1*(1-np.exp(-3*lags_model/a))   
@@ -703,12 +712,18 @@ class SDSS(MiClass):
                     if zero_nugget == False:
                         p0 = [np.mean(lags_model[-int(len(lags_model)/4.0)]),np.min(pics_model),np.max(pics_model)]
                         bounds = (0, [lags_model[-1], inf, np.max(pics_model)])
+                    elif hit_target_var == True:
+                        p0 = [np.max(pics_model)]
+                        bounds = (0, [np.max(pics_model)])
                     else:
                         p0 = [np.mean(lags_model[-int(len(lags_model)/4.0)]),np.max(pics_model)]
                         bounds = (0, [lags_model[-1], np.max(pics_model)])
         
-                
-                popt, pcov = curve_fit(semivar_return, lags_model, pics_model, bounds=bounds, p0 = p0)
+                if hit_target_var == True:
+                    pics_model_in = pics_model/self.target_var
+                    popt, pcov = curve_fit(semivar_return, lags_model, pics_model_in, bounds=bounds, p0 = p0)
+                else:
+                    popt, pcov = curve_fit(semivar_return, lags_model, pics_model, bounds=bounds, p0 = p0)
             else:    
                 popt, pcov = curve_fit(semivar_return, lags_model, pics_model, method='lm')
             
@@ -728,6 +743,11 @@ class SDSS(MiClass):
                 elif self.model_select_advanced:
                     C2 = popt[3]
                     C3 = popt[4]
+            elif hit_target_var == True:
+                C0 = 0.0 # FOR ZERO NUGGET
+                C1 = self.target_var
+                C2 = None
+                C3 = None
             else:
                 C0 = 0.0 # FOR ZERO NUGGET
                 C1 = popt[1] # FOR ZERO NUGGET
@@ -783,18 +803,18 @@ class SDSS(MiClass):
         self.C3 = C3
         
 
-    def sv_zs(self,N,N_sim,zs,sort_d,n_lags,max_cloud):
+    def sv_m_DSS(self,N,N_sim,m_DSS,sort_d,n_lags,max_cloud):
 
         """
         NEW Function for calculating semivariogram from simulations by taking the mean of
         equidistant lags
         """
 
-        pics_zs = np.zeros([n_lags-1,N_sim])
+        pics_m_DSS = np.zeros([n_lags-1,N_sim])
         for j in np.arange(0,N_sim):
             cloud_all = np.zeros([N,N])
             for i in np.arange(0,N):
-                cloud = (zs[i,j]-zs[:,j])**2
+                cloud = (m_DSS[i,j]-m_DSS[:,j])**2
                 cloud_all[i,:] = cloud
 
             pics_c = np.zeros(n_lags-1)
@@ -810,6 +830,553 @@ class SDSS(MiClass):
                 pic = 0.5*np.mean(cloud_ravel[lags_geom[n]:lags_geom[n+1]:1])
                 pics_c[n+1] = pic
 
-            pics_zs[:,j] = pics_c    
+            pics_m_DSS[:,j] = pics_c    
 
-        self.pics_zs = pics_zs
+        self.pics_m_DSS = pics_m_DSS
+
+
+    def integrating_kernel(self, obs_obj, C_e_const = 2):
+
+        G_mcal = mt_util.Gr_vec(self.r_grid, obs_obj.r_grid, self.lat, obs_obj.lat, self.lon, obs_obj.lon)
+        self.G = np.pi/(self.grid_glq_nmax+0.5)*np.multiply(self.grid_glq_w,G_mcal) # +0.5 for parity with SHTOOLS
+
+        C_e = np.diag(C_e_const**2*np.ones(obs_obj.swarm_N,)) # No need to store C_e outside of here
+
+        self.C_mm_all = self.target_var-self.sv_lut
+
+        C_dm_all = self.G*self.C_mm_all
+
+        self.C_dd = C_dm_all*self.G.T  + C_e
+
+        self.C_dm_all = C_dm_all.T
+
+        self.C_e_const = C_e_const
+
+        # Compute forward and get residuals to synthetic observations
+        fwd_leg = self.G*self.data.reshape(-1,1)
+        fwd_leg_res = obs_obj.data - fwd_leg.reshape(-1,)
+
+        # RMSE
+        rmse_leg = np.sqrt(np.mean(np.power(fwd_leg_res,2)))
+
+        print("")
+        print("Gauss-Legendre RMSE:\t %0.12f" %rmse_leg)
+        plt.figure()
+        y,binEdges=np.histogram(fwd_leg_res,bins=200)
+        bincenters = 0.5*(binEdges[1:]+binEdges[:-1])
+        plt.plot(bincenters,y,'C0',label="Gauss-Legendre")
+        plt.xlabel("Radial field residuals [nT]")
+        plt.ylabel("Count")
+        plt.legend()
+        plt.show()
+
+
+    def covmod_lsq_equiv(self, obs, C_mm, G, r_at):      
+        obs = obs.reshape(-1,1)
+        C_e = np.zeros((len(obs),len(obs)))
+        C_e[np.arange(1,len(obs)),np.arange(1,len(obs))] = self.C_e_const**2
+        S = C_e + G*self.C_mm_all*G.T
+        T = np.linalg.inv(S)
+        self.m_equiv_lsq = self.C_mm_all*G.T*T*obs
+        
+        self.lsq_equiv_pred = G*self.m_equiv_lsq
+        self.lsq_equiv_res = obs - self.lsq_equiv_pred
+
+        C_cilm = pyshtools.expand.SHExpandGLQ(self.m_equiv_lsq.reshape(self.grid_glq_nmax+1,2*self.grid_glq_nmax+1), self.grid_glq_w_shtools, self.grid_glq_zero, [2, 1, self.grid_glq_nmax])
+        nm_C = mt_util.array_nm(self.grid_glq_nmax)
+
+        C_corr_sh = 1/(nm_C[:,[0]]+1)*1/(self.a/r_at)**(nm_C[:,[0]]+2)
+        
+        C_index = np.transpose(pyshtools.shio.SHCilmToCindex(C_cilm))
+        C_index = C_index[1:,:]*C_corr_sh
+
+        C_vec = mt_util.gauss_vector(C_index, self.grid_glq_nmax, i_n = 0, i_m = 1)
+        
+        self.g_lsq_equiv = C_vec
+
+
+    def covmod_lsq_equiv_sep(self, obs, semivar_c, semivar_l, target_var_c, target_var_l, G_d_sep, 
+                        title="", errorvar = 3**2):
+        
+        d_0 = obs
+
+        G = G_d_sep.copy()
+        
+        C_M_c = target_var_c - semivar_c
+        C_M_l = target_var_l - semivar_l
+
+        C_M = np.zeros((G.shape[1],G.shape[1]))
+
+        C_M[:C_M_c.shape[0],:C_M_c.shape[0]] = C_M_c
+        C_M[-C_M_l.shape[0]:,-C_M_l.shape[0]:] = C_M_l
+        
+        C_D = np.zeros((len(d_0),len(d_0)))
+        C_D[np.arange(1,len(d_0)),np.arange(1,len(d_0))] = errorvar
+        S = C_D + G*C_M*G.T
+        T = np.linalg.inv(S)
+        m_equiv_lsq = C_M*G.T*T*d_0
+        
+        
+        lsq_equiv_pred = G_d_sep*m_equiv_lsq
+        lsq_equiv_res = obs - lsq_equiv_pred
+        return m_equiv_lsq, lsq_equiv_pred, lsq_equiv_res
+
+
+    def conditional_lookup(self, mu_k, sigma_sq_k, dm, dv):
+        #conditional_lookup(self, cond_mean, cond_var, cond_dist, cond_dist_size, mu_k, sigma_sq_k, dm, dv):
+        #conditional_lookup(core.CQF_mean, core.CQF_var, core.CQF_dist, core.condtab_normsize, mu_k, sigma_sq_k, dm_c, dv_c)
+
+        #dist = np.power((condtab["CQF mean"]-mu_k)/dm,2)+np.power((condtab["CQF var"]-sigma_sq_k)/dv,2)        
+        distance = np.power((self.CQF_mean-mu_k)/dm,2)+abs(self.CQF_var-sigma_sq_k)/np.sqrt(dv)
+
+
+        nearest = np.unravel_index(np.argmin(distance),self.CQF_mean.shape)
+        idx_n = nearest[0]
+        idx_v = nearest[-1]
+
+        m_i = self.CQF_dist[idx_n,idx_v,np.random.randint(0,self.condtab_normsize,size=1)]
+
+        m_i_mean = self.CQF_mean[idx_n,idx_v]        
+        m_i_std = np.sqrt(self.CQF_var[idx_n,idx_v],dtype=np.float64)
+
+        m_k = (m_i - m_i_mean)*np.sqrt(sigma_sq_k)/m_i_std+mu_k
+
+        return m_k
+
+
+    def run_sim(self, N_sim, N_m, C_mm_all, C_dd, C_dm_all, G, observations, training_image, sense_running_error = False, save_string = "test"):
+        import time
+        import random
+        import scipy as sp
+
+        """
+          Input
+            N_sim:
+            N_m:
+            prior_data:
+
+          Output
+            
+        """
+
+        """Number of simulations"""
+        self.N_sim = N_sim
+        m_DSS = np.zeros((N_m, N_sim))
+        time_average = np.zeros((N_sim))
+
+        """save variables"""
+        idx_nv = list()
+        lagrange = list()
+        kriging_mv = list()
+        rand_paths = list()
+        invshapes = list()
+        kriging_weights = list()
+        kriging_weights_rel_dat = list()
+        v_cond_vars = list()
+        lstsq_param = list()
+
+        #prior_data = np.hstack((core.data,lithos.data))
+
+        """ Run sequential simulations"""    
+        for realization in range(0,N_sim):
+            # Start timing
+            t0 = time.time()
+            random.seed(a=None)
+            np.random.seed()
+
+            # Initialize sequential simulation with random start
+            step_rnd_path = np.arange(N_m)
+            
+            # Randomize index array to create random path
+            random.shuffle(step_rnd_path)
+            
+            """Run spherical direct sequential simulation"""
+            
+            idx_v = np.empty([0,],dtype=int)
+            idx_n = np.empty([0,],dtype=int)
+            
+            data_min = np.min(training_image)
+            data_max = np.max(training_image)
+            dm = data_max - data_min
+            dv = self.target_var
+
+            stepped_previously = np.empty([0,],dtype=int)
+            
+            err_mag_sum = 0.0
+            len_stepped = 0
+            
+            # Start random walk
+            for step in step_rnd_path:
+                
+                C_mm = np.empty([0,],dtype=np.longdouble)
+                C_dm = np.empty([0,],dtype=np.longdouble)
+                C_vm = np.empty([0,],dtype=np.longdouble)
+                
+                c_mm = np.empty([0,1],dtype=np.longdouble)
+                c_dm = np.empty([0,1],dtype=np.longdouble)
+                c_vm = np.empty([0,],dtype=np.longdouble)
+                
+                mu_k = np.empty([0,],dtype=np.longdouble)
+                sigma_sq_k = np.empty([0,],dtype=np.longdouble)
+                idx_n = np.empty([0,],dtype=int)
+                idx_v = np.empty([0,],dtype=int)
+                m_i = np.empty([0,],dtype=np.longdouble)
+                m_k = np.empty([0,],dtype=np.longdouble)
+                
+                err_mag_avg = np.empty([0,],dtype=np.longdouble)
+                
+                kriging_weights = np.empty([0,],dtype=np.longdouble)
+                v_cond_var = np.empty([0,],dtype=np.longdouble)
+                
+                #""" SORT METHOD """
+
+                #cov_walked = C_mm_all[step,stepped_previously]
+                
+                """COV SETUP"""
+
+                # Set up k
+                c_mm = C_mm_all[step,stepped_previously].reshape(-1,1)
+                #c_dm = np.matmul(G,C_mm_all[step,:]).reshape(-1,1)
+                c_dm = C_dm_all[step,:].reshape(-1,1)
+
+                # Lookup all closest location semi-variances to each other (efficiently)
+                C_mm = (np.ravel(C_mm_all)[(stepped_previously + (stepped_previously * C_mm_all.shape[1]).reshape((-1,1))).ravel()]).reshape(stepped_previously.size, stepped_previously.size)
+                
+                # Efficient lookup of Greens
+                #C_dd = GG_K_sep
+                
+                if len(stepped_previously) >= 1:
+                    #C_dm = np.matmul(G,C_mm_all[:,stepped_previously]).T
+                    C_dm = C_dm_all[stepped_previously,:]
+
+                c_vm = np.vstack((c_mm,c_dm))
+                
+                C_vm = np.zeros((len(C_dd)+len(C_mm),len(C_dd)+len(C_mm)))
+                C_vm[-len(C_dd):,-len(C_dd):] = C_dd
+                
+                if len(stepped_previously) >= 1:    
+                    C_vm[:len(C_mm),:len(C_mm)] = C_mm
+                    C_vm[:len(C_mm),-len(C_dd):] = C_dm
+                    C_vm[-len(C_dd):,:len(C_mm)] = C_dm.T
+
+                v_cond_var = m_DSS[stepped_previously,realization].reshape(-1,1)
+                
+                if len_stepped > 0:
+                    v_cond_var = np.vstack((v_cond_var,observations.reshape(-1,1))).T
+                else:
+                    v_cond_var = observations.reshape(-1,1).T
+
+
+                """SIMPLE KRIGING (SK)"""
+
+                cho_lower = sp.linalg.cho_factor(C_vm)
+                kriging_weights = sp.linalg.cho_solve(cho_lower,c_vm)
+                
+                #sigma_sq_k = C_mm_all[step,step] - np.float(kriging_weights.T*c_vm)
+                sigma_sq_k = self.target_var - np.float(kriging_weights.T*c_vm)
+
+                if sigma_sq_k < 0.0:
+                    print("")
+                    print("Negative kriging variance: %s" %sigma_sq_k)
+                    print("")
+                    kriging_weights[kriging_weights<0] = 0
+                    #sigma_sq_k = C_mm_all[step,step] - np.float(kriging_weights.T*c_vm)
+                    sigma_sq_k = self.target_var - np.float(kriging_weights.T*c_vm)
+                
+                mu_k = np.float(np.array(kriging_weights.T@(v_cond_var.T - 0.0) + 0.0))
+                
+                m_k = self.conditional_lookup(mu_k, sigma_sq_k, dm, dv)
+                
+                m_DSS[step,realization] = m_k
+                
+                # Count locations walked for search neighborhood
+                stepped_previously = np.append(stepped_previously, step)
+                len_stepped += 1
+                
+                # Get running sense of size of error compared to prior
+                if sense_running_error == True:
+                    err_mag = np.log10(float(np.abs((training_image)[step]-m_k)))
+                    err_mag_sum += err_mag
+                    err_mag_avg = float(err_mag_sum/len_stepped)
+                    
+                    mt_util.printProgressBar (len(stepped_previously), N_m, err_mag_avg, subject = ' realization nr. %d' % realization)
+                else:
+                    mt_util.printProgressBar (len(stepped_previously), N_m, subject = ' realization nr. %d' % realization)
+
+            # End timing
+            t1 = time.time()
+            
+            # Plot statistics of realization
+            time_average[realization] = (t1-t0)
+            if time_average[realization] < 60:
+                print('Run time: %.3f' %(time_average[realization]), 'seconds', '')
+            elif time_average[realization] < 3600:
+                print('Run time: %.3f' %(time_average[realization]*60**(-1)), 'minutes', '')
+            else:
+                print('Run time: %.3f' %(time_average[realization]*60**(-2)), 'hours', '')
+            if np.sum(time_average[:(realization+1)])*60**(-1) > 60:
+                print('Total elapsed time: %.3f' %(np.sum(time_average[:(realization+1)])*60**(-2)), 'hours', '')
+            else:
+                print('Total elapsed time: %.3f' %(np.sum(time_average[:(realization+1)])*60**(-1)), 'minutes', '')
+                
+            print('Variance: %.3f' %np.var(m_DSS[:,realization]))
+            print('Mean: %.3f' %np.mean(m_DSS[:,realization]))
+            print('Max: %.3f' %np.max(m_DSS[:,realization]))
+            print('Min: %.3f' %np.min(m_DSS[:,realization]))
+            
+            print('Run nr.:', realization+1)
+            print('')
+            
+            # Save realizations after each step
+            np.save("m_DSS_{}".format(save_string), m_DSS[:,:realization])
+
+        self.m_DSS = m_DSS
+
+        self.m_DSS_pred = self.G*self.m_DSS
+        self.m_DSS_res = observations.reshape(-1,1) - self.m_DSS_pred
+
+        rmse_leg = np.sqrt(np.mean(np.power(self.m_DSS_res,2),axis=0))
+        print("")
+        print("Seqsim RMSE:\t {}".format(rmse_leg))
+
+        color_rgb = (0.6,0.6,0.6)
+        plt.figure()
+        for i in np.arange(0,N_sim):
+            y,binEdges=np.histogram(self.m_DSS_res[:,[i]],bins=200)
+            bincenters = 0.5*(binEdges[1:]+binEdges[:-1])
+            if i == 0:
+                plt.plot(bincenters,y,'-',color = color_rgb,label='Seqsim')  
+            else:
+                plt.plot(bincenters,y,'-',color = color_rgb)  
+                
+        plt.xlabel("Radial field residuals [nT]")
+        plt.ylabel("Count")
+        plt.show()
+
+
+    def realization_to_sh_coeff(self, r_at):
+
+        self.grid_glq(nmax = self.N_SH, r_at = r_at)
+
+        self.g_spec = []
+
+        for i in np.arange(0,self.N_sim):
+
+            C_cilm = pyshtools.expand.SHExpandGLQ(self.m_DSS[:,[i]].reshape(self.grid_glq_nmax+1,2*self.grid_glq_nmax+1), self.grid_glq_w_shtools, self.grid_glq_zero, [2, 1, self.grid_glq_nmax])
+            nm_C = mt_util.array_nm(self.grid_glq_nmax)
+
+            C_corr_sh = 1/(nm_C[:,[0]]+1)*1/(self.a/r_at)**(nm_C[:,[0]]+2)
+            
+            C_index = np.transpose(pyshtools.shio.SHCilmToCindex(C_cilm))
+            C_index = C_index[1:,:]*C_corr_sh
+
+            C_vec = mt_util.gauss_vector(C_index, self.grid_glq_nmax, i_n = 0, i_m = 1)
+            
+            self.g_spec.append(C_vec)
+
+        self.g_spec = np.array(self.g_spec).T
+
+
+    def run_sim_sep(self, N_sim):
+        import time
+        import random
+
+        kriging_method = "simple"
+
+        """
+        Possible kriging_method(s):
+            - simple
+        """
+
+        """Number of simulations"""
+        m_DSS = np.zeros((core.grid_glq_N + lithos.grid_glq_N, N_sim))
+        time_average = np.zeros((N_sim))
+
+        """save variables"""
+        idx_nv = list()
+        lagrange = list()
+        kriging_mv = list()
+        rand_paths = list()
+        invshapes = list()
+        kriging_weights = list()
+        kriging_weights_rel_dat = list()
+        v_cond_vars = list()
+        lstsq_param = list()
+
+        prior_data = np.hstack((core.data,lithos.data))
+
+        """ Run sequential simulations"""    
+        for realization in range(0,N_sim):
+            # Start timing
+            t0 = time.time()
+            random.seed(a=None)
+            np.random.seed()
+
+            # Initialize sequential simulation with random start
+            step_rnd_path = np.arange(core.grid_glq_N + lithos.grid_glq_N)
+            
+            # Randomize index array to create random path
+            random.shuffle(step_rnd_path)
+            
+            """Run spherical direct sequential simulation"""
+            
+            idx_v = np.empty([0,],dtype=int)
+            idx_n = np.empty([0,],dtype=int)
+            
+            data_min_c = np.min(core.data)
+            data_max_c = np.max(core.data)
+            dm_c = data_max_c - data_min_c
+            dv_c = core.target_var
+            
+            data_min_l = np.min(lithos.data)
+            data_max_l = np.max(lithos.data)
+            dm_l = data_max_l - data_min_l
+            dv_l = lithos.target_var
+
+            stepped_previously = np.empty([0,],dtype=int)
+            
+            err_mag_sum_c = 0.0
+            err_mag_sum_l = 0.0
+            len_walked_c = 0
+            len_walked_l = 0
+            len_stepped = 0
+            
+            # Start random walk
+            for step in step_rnd_path:
+            
+                step = step
+                
+                C_mm = np.empty([0,],dtype=np.longdouble)
+                C_dd = np.empty([0,],dtype=np.longdouble)
+                C_dm = np.empty([0,],dtype=np.longdouble)
+                C_vm = np.empty([0,],dtype=np.longdouble)
+                
+                c_mm = np.empty([0,1],dtype=np.longdouble)
+                c_dm = np.empty([0,1],dtype=np.longdouble)
+                c_vm = np.empty([0,],dtype=np.longdouble)
+                
+                mu_k = np.empty([0,],dtype=np.longdouble)
+                sigma_sq_k = np.empty([0,],dtype=np.longdouble)
+                idx_n = np.empty([0,],dtype=int)
+                idx_v = np.empty([0,],dtype=int)
+                m_i = np.empty([0,],dtype=np.longdouble)
+                m_k = np.empty([0,],dtype=np.longdouble)
+                
+                err_mag_avg = np.empty([0,],dtype=np.longdouble)
+                
+                kriging_weights = np.empty([0,],dtype=np.longdouble)
+                v_cond_var = np.empty([0,],dtype=np.longdouble)
+                
+                """ SORT METHOD """
+
+                cov_walked = C_mm_all[step,stepped_previously]
+                
+                """COV SETUP"""
+
+                # Set up k
+                c_mm = cov_walked.reshape(-1,1)
+                c_dm = np.matmul(G,C_mm_all[step,:]).reshape(-1,1)
+                
+                # Lookup all closest location semi-variances to each other (efficiently)
+                C_mm = (np.ravel(C_mm_all)[(stepped_previously + (stepped_previously * C_mm_all.shape[1]).reshape((-1,1))).ravel()]).reshape(stepped_previously.size, stepped_previously.size)
+                
+                # Efficient lookup of Greens
+                #C_dd = GG_K_sep
+                
+                if len(stepped_previously) >= 1:
+                    C_dm = np.matmul(G,C_mm_all[:,stepped_previously]).T
+                
+                c_vm = np.vstack((c_mm,c_dm))
+                
+                C_vm = np.zeros((len(C_dd)+len(C_mm),len(C_dd)+len(C_mm)))
+                C_vm[-len(C_dd):,-len(C_dd):] = C_dd
+                
+                if len(stepped_previously) >= 1:    
+                    C_vm[:len(C_mm),:len(C_mm)] = C_mm
+                    C_vm[:len(C_mm),-len(C_dd):] = C_dm
+                    C_vm[-len(C_dd):,:len(C_mm)] = C_dm.T
+
+                v_cond_var = m_DSS[stepped_previously,realization].reshape(-1,1)
+                
+                if len_stepped > 0:
+                    v_cond_var = np.vstack((v_cond_var,observations.reshape(-1,1))).T
+                else:
+                    v_cond_var = observations.reshape(-1,1).T
+
+
+                if kriging_method == "simple":
+                    """SIMPLE KRIGING (SK)"""
+
+                    cho_lower = sp.linalg.cho_factor(C_vm)
+                    kriging_weights = sp.linalg.cho_solve(cho_lower,c_vm)
+                    
+                    sigma_sq_k = C_mm_all[step,step] - np.float(kriging_weights.T*c_vm)
+                    
+                    if sigma_sq_k < 0.0:
+                        print("")
+                        print("Negative kriging variance: %s" %sigma_sq_k)
+                        print("")
+                        kriging_weights[kriging_weights<0] = 0
+                        sigma_sq_k = C_mm_all[step,step] - np.float(kriging_weights.T*c_vm)
+                    
+                    mu_k = np.float(np.array(kriging_weights.T@(v_cond_var.T - 0.0) + 0.0))
+                
+                
+                if step < core.grid_glq_N:
+                    m_k = conditional_lookup(core.CQF_mean, core.CQF_var, core.CQF_dist, core.condtab_normsize, mu_k, sigma_sq_k, dm_c, dv_c)
+                else:
+                    m_k = conditional_lookup(lithos.CQF_mean, lithos.CQF_var, lithos.CQF_dist, lithos.condtab_normsize, mu_k, sigma_sq_k, dm_l, dv_l)
+                
+                m_DSS[step,realization] = m_k
+                
+                # Count locations walked for search neighborhood
+                stepped_previously = np.append(stepped_previously, step)
+                len_stepped += 1
+                
+                # Get running sense of size of error compared to prior
+                err_mag = np.log10(float(np.abs((prior_data)[step]-m_k)))
+
+                if step < core.grid_glq_N:
+                    len_walked_c += 1
+                    err_mag_sum_c += err_mag
+                    err_mag_avg = float(err_mag_sum_c/len_walked_c)
+                else:
+                    len_walked_l += 1
+                    err_mag_sum_l += err_mag
+                    err_mag_avg = float(err_mag_sum_l/len_walked_l)
+                
+                mt_util.printProgressBar (len(stepped_previously), core.grid_glq_N + lithos.grid_glq_N, err_mag_avg, subject = ' realization nr. %d' % realization)
+
+            # End timing
+            t1 = time.time()
+            
+            # Plot statistics of realization
+            time_average[realization] = (t1-t0)
+            if time_average[realization] < 60:
+                print('Run time: %.3f' %(time_average[realization]), 'seconds', '')
+            elif time_average[realization] < 3600:
+                print('Run time: %.3f' %(time_average[realization]*60**(-1)), 'minutes', '')
+            else:
+                print('Run time: %.3f' %(time_average[realization]*60**(-2)), 'hours', '')
+            if np.sum(time_average[:(realization+1)])*60**(-1) > 60:
+                print('Total elapsed time: %.3f' %(np.sum(time_average[:(realization+1)])*60**(-2)), 'hours', '')
+            else:
+                print('Total elapsed time: %.3f' %(np.sum(time_average[:(realization+1)])*60**(-1)), 'minutes', '')
+                
+            print('C Variance: %.3f' %np.var(m_DSS[:core.grid_glq_N,realization]))
+            print('C Mean: %.3f' %np.mean(m_DSS[:core.grid_glq_N,realization]))
+            print('C Max: %.3f' %np.max(m_DSS[:core.grid_glq_N,realization]))
+            print('C Min: %.3f' %np.min(m_DSS[:core.grid_glq_N,realization]))
+
+            print('L Variance: %.3f' %np.var(m_DSS[-lithos.grid_glq_N:,realization]))
+            print('L Mean: %.3f' %np.mean(m_DSS[-lithos.grid_glq_N:,realization]))
+            print('L Max: %.3f' %np.max(m_DSS[-lithos.grid_glq_N:,realization]))
+            print('L Min: %.3f' %np.min(m_DSS[-lithos.grid_glq_N:,realization]))
+            
+            print('Run nr.:', realization+1)
+            print('')
+            
+            # Save realizations after each step
+            np.save("m_DSS_{}".format(nb_name), m_DSS)
+    
+    
