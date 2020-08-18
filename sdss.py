@@ -272,7 +272,7 @@ class SDSS(MiClass):
     
         if table == 'fine':
             rangn = np.linspace(-3.5,3.5,1001)
-            rangv = np.linspace(start,2.0,101)
+            rangv = np.linspace(start,2.0,201)
         else:
             rangn = np.linspace(-3.5,3.5,501)
             rangv = np.linspace(start,2.0,101)
@@ -1175,7 +1175,7 @@ class SDSS(MiClass):
             self.g_spec.append(C_vec)
 
         self.g_spec = np.array(self.g_spec).T
-
+        self.g_spec_mean = np.mean(self.g_spec,axis=1)
 
     def run_sim_sep(self, N_sim):
         import time
