@@ -922,12 +922,15 @@ class SDSS(MiClass):
         return m_equiv_lsq, lsq_equiv_pred, lsq_equiv_res
 
 
-    def conditional_lookup(self, mu_k, sigma_sq_k, dm, dv):
+    def conditional_lookup(self, mu_k, sigma_sq_k, dm, dv, unit_d = False, scaling = True):
         #conditional_lookup(self, cond_mean, cond_var, cond_dist, cond_dist_size, mu_k, sigma_sq_k, dm, dv):
         #conditional_lookup(core.CQF_mean, core.CQF_var, core.CQF_dist, core.condtab_normsize, mu_k, sigma_sq_k, dm_c, dv_c)
 
-        #dist = np.power((condtab["CQF mean"]-mu_k)/dm,2)+np.power((condtab["CQF var"]-sigma_sq_k)/dv,2)        
-        distance = np.power((self.CQF_mean-mu_k)/dm,2)+abs(self.CQF_var-sigma_sq_k)/np.sqrt(dv)
+        #dist = np.power((condtab["CQF mean"]-mu_k)/dm,2)+np.power((condtab["CQF var"]-sigma_sq_k)/dv,2)
+        if unit_d == True:        
+            distance = np.power((self.CQF_mean-mu_k),2)+abs(self.CQF_var-sigma_sq_k)
+        else:
+            distance = np.power((self.CQF_mean-mu_k)/dm,2)+abs(self.CQF_var-sigma_sq_k)/np.sqrt(dv)
 
 
         nearest = np.unravel_index(np.argmin(distance),self.CQF_mean.shape)
@@ -936,15 +939,18 @@ class SDSS(MiClass):
 
         m_i = self.CQF_dist[idx_n,idx_v,np.random.randint(0,self.condtab_normsize,size=1)]
 
-        m_i_mean = self.CQF_mean[idx_n,idx_v]        
-        m_i_std = np.sqrt(self.CQF_var[idx_n,idx_v],dtype=np.float64)
+        if scaling == True:
+            m_i_mean = self.CQF_mean[idx_n,idx_v]        
+            m_i_std = np.sqrt(self.CQF_var[idx_n,idx_v],dtype=np.float64)
 
-        m_k = (m_i - m_i_mean)*np.sqrt(sigma_sq_k)/m_i_std+mu_k
+            m_k = (m_i - m_i_mean)*np.sqrt(sigma_sq_k)/m_i_std+mu_k
+        else:
+            m_k = m_i
 
         return m_k
 
 
-    def run_sim(self, N_sim, N_m, C_mm_all, C_dd, C_dm_all, G, observations, training_image, sense_running_error = False, save_string = "test"):
+    def run_sim(self, N_sim, N_m, C_mm_all, C_dd, C_dm_all, G, observations, training_image, scale_m_i = True, unit_d = False, sense_running_error = False, save_string = "test"):
         import time
         import random
         import scipy as sp
@@ -1085,7 +1091,7 @@ class SDSS(MiClass):
                 
                 mu_k = np.float(np.array(kriging_weights.T@(v_cond_var.T - 0.0) + 0.0))
                 
-                m_k = self.conditional_lookup(mu_k, sigma_sq_k, dm, dv)
+                m_k = self.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d)
                 
                 m_DSS[step,realization] = m_k
                 
