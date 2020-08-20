@@ -250,7 +250,7 @@ class SDSS(MiClass):
         self.g_prior = g
         
 
-    def condtab(self, normsize = 1001, model_hist = False, table = 'rough', quantiles = None):
+    def condtab(self, normsize = 1001, model_hist = False, table = 'rough', quantiles = None, rangn_lim = 3.5, rangv_lim = 2.0):
         """
         Conditional distribution table
         """
@@ -274,8 +274,8 @@ class SDSS(MiClass):
             rangn = np.linspace(-3.5,3.5,1001)
             rangv = np.linspace(start,2.0,201)
         else:
-            rangn = np.linspace(-3.5,3.5,501)
-            rangv = np.linspace(start,2.0,101)
+            rangn = np.linspace(-rangn_lim,rangn_lim,501)
+            rangv = np.linspace(start,rangv_lim,101)
             
         # Normscored local conditional distributions
         
@@ -334,7 +334,8 @@ class SDSS(MiClass):
         cloud_all = np.zeros([self.N_grid, self.N_grid])
         
         for i in range(0,self.N_grid):
-            cloud = (self.data[i]-self.data)**2
+            #cloud = (self.data[i]-self.data)**2
+            cloud = 0.5*(self.data[i]-self.data)**2
             cloud_all[i,:] = cloud
         
         self.cloud_sorted = cloud_all.ravel()[self.sort_d]
@@ -350,7 +351,8 @@ class SDSS(MiClass):
         pics = np.zeros(n_lags-1)
         lags = np.zeros(n_lags-1)
         
-        pic_zero = 0.5*np.mean(self.cloud_sorted[:self.N_grid])
+        #pic_zero = 0.5*np.mean(self.cloud_sorted[:self.N_grid])
+        pic_zero = np.mean(self.cloud_sorted[:self.N_grid])
         lag_zero = np.mean(self.sph_d_sorted[:self.N_grid])
         pics[0] = pic_zero
         lags[0] = lag_zero
@@ -358,7 +360,8 @@ class SDSS(MiClass):
         lags_geom = np.linspace(self.N_grid+2, max_cloud, n_lags, dtype=int)
         for n in np.arange(0,n_lags-2):
             
-            pic = 0.5*np.mean(self.cloud_sorted[lags_geom[n]:lags_geom[n+1]:1])
+            #pic = 0.5*np.mean(self.cloud_sorted[lags_geom[n]:lags_geom[n+1]:1])
+            pic = np.mean(self.cloud_sorted[lags_geom[n]:lags_geom[n+1]:1])
             
             pics[n+1] = pic
             
@@ -549,7 +552,8 @@ class SDSS(MiClass):
         return vario_lut
 
 
-    def semivar(self, model_lags = 'all', model = 'nested_sph_exp_gau', max_dist = 11000, lag_length = 5, nolut = False, bounds = True, zero_nugget = False, set_model = False, hit_target_var = False):
+    def semivar(self, model_lags = 'all', model = 'nested_sph_exp_gau', max_dist = 11000, lag_length = 5, 
+                nolut = False, bounds = True, zero_nugget = False, set_model = False, hit_target_var = False):
         from math import inf
         import numpy as np
         from scipy.optimize import curve_fit
@@ -814,20 +818,22 @@ class SDSS(MiClass):
         for j in np.arange(0,N_sim):
             cloud_all = np.zeros([N,N])
             for i in np.arange(0,N):
-                cloud = (m_DSS[i,j]-m_DSS[:,j])**2
+                cloud = 0.5*(m_DSS[i,j]-m_DSS[:,j])**2
                 cloud_all[i,:] = cloud
 
             pics_c = np.zeros(n_lags-1)
             cloud_ravel = np.ravel(cloud_all)[sort_d]
 
-            pic_zero = 0.5*np.mean(cloud_ravel[:N])
+            pic_zero = np.mean(cloud_ravel[:N])
+            #pic_zero = 0.5*np.mean(cloud_ravel[:N])
             pics_c[0] = pic_zero
 
             lags_geom = np.linspace(N+2,max_cloud,n_lags,dtype=int)
 
             for n in np.arange(0,n_lags-2):
 
-                pic = 0.5*np.mean(cloud_ravel[lags_geom[n]:lags_geom[n+1]:1])
+                #pic = 0.5*np.mean(cloud_ravel[lags_geom[n]:lags_geom[n+1]:1])
+                pic = np.mean(cloud_ravel[lags_geom[n]:lags_geom[n+1]:1])
                 pics_c[n+1] = pic
 
             pics_m_DSS[:,j] = pics_c    
@@ -922,7 +928,7 @@ class SDSS(MiClass):
         return m_equiv_lsq, lsq_equiv_pred, lsq_equiv_res
 
 
-    def conditional_lookup(self, mu_k, sigma_sq_k, dm, dv, unit_d = False, scaling = True):
+    def conditional_lookup(self, mu_k, sigma_sq_k, dm, dv, unit_d = False, scaling = True, return_idx = False):
         #conditional_lookup(self, cond_mean, cond_var, cond_dist, cond_dist_size, mu_k, sigma_sq_k, dm, dv):
         #conditional_lookup(core.CQF_mean, core.CQF_var, core.CQF_dist, core.condtab_normsize, mu_k, sigma_sq_k, dm_c, dv_c)
 
@@ -947,10 +953,14 @@ class SDSS(MiClass):
         else:
             m_k = m_i
 
-        return m_k
+        if return_idx == True:
+            return m_k, (idx_n, idx_v)
+        else:
+            return m_k
 
 
-    def run_sim(self, N_sim, N_m, C_mm_all, C_dd, C_dm_all, G, observations, training_image, scale_m_i = True, unit_d = False, sense_running_error = False, save_string = "test"):
+    def run_sim(self, N_sim, N_m, C_mm_all, C_dd, C_dm_all, G, observations, training_image,
+                collect_all = False, scale_m_i = True, unit_d = False, sense_running_error = False, save_string = "test"):
         import time
         import random
         import scipy as sp
@@ -971,9 +981,9 @@ class SDSS(MiClass):
         time_average = np.zeros((N_sim))
 
         """save variables"""
-        idx_nv = list()
+        self.idx_nv_collect = list()
         lagrange = list()
-        kriging_mv = list()
+        self.kriging_mv_collect = list()
         rand_paths = list()
         invshapes = list()
         kriging_weights = list()
@@ -1089,10 +1099,17 @@ class SDSS(MiClass):
                     #sigma_sq_k = C_mm_all[step,step] - np.float(kriging_weights.T*c_vm)
                     sigma_sq_k = self.target_var - np.float(kriging_weights.T*c_vm)
                 
-                mu_k = np.float(np.array(kriging_weights.T@(v_cond_var.T - 0.0) + 0.0))
+                mu_k = np.float(np.array(kriging_weights.T@(v_cond_var.T - self.target_mean) + self.target_mean))
                 
-                m_k = self.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d)
+                if collect_all == True:
+                    m_k, idx_nv = self.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = True)
+                    self.idx_nv_collect.append(idx_nv)
+                    self.kriging_mv_collect.append((mu_k, sigma_sq_k))
+                else:
+                    m_k = self.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = False)
                 
+                
+
                 m_DSS[step,realization] = m_k
                 
                 # Count locations walked for search neighborhood
@@ -1160,23 +1177,26 @@ class SDSS(MiClass):
         plt.show()
 
 
-    def realization_to_sh_coeff(self, r_at):
-
+    def realization_to_sh_coeff(self, r_at, set_nmax = None):
+        
         self.grid_glq(nmax = self.N_SH, r_at = r_at)
+
+        if set_nmax == None:
+            set_nmax = self.grid_glq_nmax
 
         self.g_spec = []
 
         for i in np.arange(0,self.N_sim):
 
-            C_cilm = pyshtools.expand.SHExpandGLQ(self.m_DSS[:,[i]].reshape(self.grid_glq_nmax+1,2*self.grid_glq_nmax+1), self.grid_glq_w_shtools, self.grid_glq_zero, [2, 1, self.grid_glq_nmax])
-            nm_C = mt_util.array_nm(self.grid_glq_nmax)
+            C_cilm = pyshtools.expand.SHExpandGLQ(self.m_DSS[:,[i]].reshape(self.grid_glq_nmax+1,2*self.grid_glq_nmax+1), self.grid_glq_w_shtools, self.grid_glq_zero, [2, 1, set_nmax])
+            nm_C = mt_util.array_nm(set_nmax)
 
             C_corr_sh = 1/(nm_C[:,[0]]+1)*1/(self.a/r_at)**(nm_C[:,[0]]+2)
             
             C_index = np.transpose(pyshtools.shio.SHCilmToCindex(C_cilm))
             C_index = C_index[1:,:]*C_corr_sh
 
-            C_vec = mt_util.gauss_vector(C_index, self.grid_glq_nmax, i_n = 0, i_m = 1)
+            C_vec = mt_util.gauss_vector(C_index, set_nmax, i_n = 0, i_m = 1)
             
             self.g_spec.append(C_vec)
 
