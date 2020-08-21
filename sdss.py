@@ -250,7 +250,8 @@ class SDSS(MiClass):
         self.g_prior = g
         
 
-    def condtab(self, normsize = 1001, model_hist = False, table = 'rough', quantiles = None, rangn_lim = 3.5, rangv_lim = 2.0):
+    def condtab(self, normsize = 1001, model_hist = False, table = 'rough', quantiles = None, 
+                rangn_lim = 3.5, rangn_N = 501, rangv_lim = 2.0, rangv_N = 101):
         """
         Conditional distribution table
         """
@@ -270,12 +271,9 @@ class SDSS(MiClass):
         else:
             data_sorted = np.sort(self.data)
     
-        if table == 'fine':
-            rangn = np.linspace(-3.5,3.5,1001)
-            rangv = np.linspace(start,2.0,201)
-        else:
-            rangn = np.linspace(-rangn_lim,rangn_lim,501)
-            rangv = np.linspace(start,rangv_lim,101)
+
+        rangn = np.linspace(-rangn_lim,rangn_lim,rangn_N)
+        rangv = np.linspace(start,rangv_lim,rangv_N)
             
         # Normscored local conditional distributions
         
@@ -936,8 +934,8 @@ class SDSS(MiClass):
         if unit_d == True:        
             distance = np.power((self.CQF_mean-mu_k),2)+abs(self.CQF_var-sigma_sq_k)
         else:
-            distance = np.power((self.CQF_mean-mu_k)/dm,2)+abs(self.CQF_var-sigma_sq_k)/np.sqrt(dv)
-
+            #distance = np.power((self.CQF_mean-mu_k)/dm,2)+abs(self.CQF_var-sigma_sq_k)/np.sqrt(dv)
+            distance = abs(self.CQF_mean-mu_k)/dm+abs(self.CQF_var-sigma_sq_k)/dv
 
         nearest = np.unravel_index(np.argmin(distance),self.CQF_mean.shape)
         idx_n = nearest[0]
@@ -960,7 +958,7 @@ class SDSS(MiClass):
 
 
     def run_sim(self, N_sim, N_m, C_mm_all, C_dd, C_dm_all, G, observations, training_image,
-                collect_all = False, scale_m_i = True, unit_d = False, sense_running_error = False, save_string = "test"):
+                collect_all = False, scale_m_i = True, unit_d = False, sense_running_error = False, save_string = "test", solve_cho = True):
         import time
         import random
         import scipy as sp
@@ -1084,10 +1082,13 @@ class SDSS(MiClass):
 
 
                 """SIMPLE KRIGING (SK)"""
-
-                cho_lower = sp.linalg.cho_factor(C_vm)
-                kriging_weights = sp.linalg.cho_solve(cho_lower,c_vm)
                 
+                if solve_cho == True:
+                    cho_lower = sp.linalg.cho_factor(C_vm)
+                    kriging_weights = sp.linalg.cho_solve(cho_lower,c_vm)
+                else:
+                    kriging_weights = np.linalg.solve(C_vm,c_vm)
+                    
                 #sigma_sq_k = C_mm_all[step,step] - np.float(kriging_weights.T*c_vm)
                 sigma_sq_k = self.target_var - np.float(kriging_weights.T*c_vm)
 
