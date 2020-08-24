@@ -163,7 +163,7 @@ class SDSS(MiClass):
         self.target_mean = 0.0
 
 
-    def load_swarm(self, dataset, use_obs = False):
+    def load_swarm(self, dataset, use_obs = False, target_var = None, target_var_factor = None):
         # Load swarm samples
         data_swarm = {"SW_A":np.loadtxt("swarm_data/SW_A_AprilMayJune18_dark_quiet_NEC.txt",comments="%"), "SW_B":np.loadtxt("swarm_data/SW_B_AprilMayJune18_dark_quiet_NEC.txt",comments="%"), "SW_C":np.loadtxt("swarm_data/SW_C_AprilMayJune18_dark_quiet_NEC.txt",comments="%")}
         if dataset == "A":
@@ -188,11 +188,16 @@ class SDSS(MiClass):
         if use_obs == True:
             self.data = self.swarm_obs
             # Target statistics
-            self.target_var = np.var(self.data)
+            if target_var_factor is not None:
+                self.target_var = target_var_factor*np.var(self.data)
+            elif target_var == None:
+                self.target_var = np.var(self.data)
+            else:
+                self.target_var = target_var
             self.target_mean_true = np.mean(self.data)
             self.target_mean = 0.0
 
-    def generate_map(self, grid_type = "glq", *args):
+    def generate_map(self, grid_type = "glq", target_var = None, target_var_factor = None, *args):
 
         # Load Gauss coefficients from data files
         if np.logical_or(self.sim_type == "core", self.sim_type == "sat"):
@@ -244,7 +249,12 @@ class SDSS(MiClass):
             self.r_grid_repeat = np.ones(self.N_grid,)*self.r_grid
         
         # Target statistics
-        self.target_var = np.var(self.data)
+        if target_var_factor is not None:
+            self.target_var = target_var_factor*np.var(self.data)
+        elif target_var == None:
+            self.target_var = np.var(self.data)
+        else:
+            self.target_var = target_var
         self.target_mean_true = np.mean(self.data)
         self.target_mean = 0.0
         self.g_prior = g
@@ -260,7 +270,8 @@ class SDSS(MiClass):
         from sklearn.preprocessing import QuantileTransformer
         
         # Linearly spaced value array with start/end very close to zero/one
-        start = 1e-16 #Python min
+        #start = 1e-16 #Python min
+        start = 0.01
         linspace = np.linspace(start,1-start,normsize)
         
         # Possible model target histogram cdf/ccdf
