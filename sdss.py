@@ -261,7 +261,7 @@ class SDSS(MiClass):
         
 
     def condtab(self, normsize = 1001, model_hist = False, table = 'rough', quantiles = None, 
-                rangn_lim = 3.5, rangn_N = 501, rangv_lim = 2.0, rangv_N = 101):
+                rangn_lim = 3.5, rangn_N = 501, rangv_lim = 2.0, rangv_N = 101, rangn_geomspace = False):
         """
         Conditional distribution table
         """
@@ -282,8 +282,11 @@ class SDSS(MiClass):
         else:
             data_sorted = np.sort(self.data)
     
+        if rangn_geomspace == False:
+            rangn = np.linspace(-rangn_lim,rangn_lim,rangn_N)
+        else:
+            rangn = np.vstack((np.geomspace(-rangn_lim,-start,int(rangn_N/2)).reshape(-1,1),np.zeros((1,1)),np.geomspace(start,rangn_lim,int(rangn_N/2)).reshape(-1,1)))
 
-        rangn = np.linspace(-rangn_lim,rangn_lim,rangn_N)
         rangv = np.linspace(start,rangv_lim,rangv_N)
             
         # Normscored local conditional distributions
@@ -309,7 +312,8 @@ class SDSS(MiClass):
                 CQF_dist[i,j,:] = np.sort(qt.inverse_transform((norm.ppf(linspace,loc=rangn[i],scale=np.sqrt(rangv[j]))).reshape(-1,1)).ravel(),axis=0)
                 CQF_mean[i,j] = np.mean(CQF_dist[i,j,:],axis=0,dtype=np.float64)
                 CQF_var[i,j] = np.var(CQF_dist[i,j,:],axis=0,ddof=1,dtype=np.float64)
-        
+                #CQF_var[i,j] = np.var(CQF_dist[i,j,:],axis=0,ddof=0,dtype=np.float64)
+
         self.CQF_dist = CQF_dist
         self.CQF_mean = CQF_mean
         self.CQF_var = CQF_var
@@ -969,7 +973,9 @@ class SDSS(MiClass):
 
 
     def run_sim(self, N_sim, N_m, C_mm_all, C_dd, C_dm_all, G, observations, training_image,
-                collect_all = False, scale_m_i = True, unit_d = False, sense_running_error = False, save_string = "test", solve_cho = True):
+                collect_all = False, scale_m_i = True, unit_d = False, sense_running_error = False, save_string = "test", solve_cho = True,
+                sim_stochastic = False):
+                
         import time
         import random
         import scipy as sp
@@ -1039,14 +1045,15 @@ class SDSS(MiClass):
                 
                 c_mm = np.empty([0,1],dtype=np.longdouble)
                 c_dm = np.empty([0,1],dtype=np.longdouble)
-                c_vm = np.empty([0,],dtype=np.longdouble)
+                c_vm = np.empty([0,1],dtype=np.longdouble)
                 
                 mu_k = np.empty([0,],dtype=np.longdouble)
                 sigma_sq_k = np.empty([0,],dtype=np.longdouble)
                 idx_n = np.empty([0,],dtype=int)
                 idx_v = np.empty([0,],dtype=int)
                 m_i = np.empty([0,],dtype=np.longdouble)
-                m_k = np.empty([0,],dtype=np.longdouble)
+                #m_k = np.empty([0,],dtype=np.longdouble)
+                m_k = None
                 
                 err_mag_avg = np.empty([0,],dtype=np.longdouble)
                 
@@ -1059,68 +1066,73 @@ class SDSS(MiClass):
                 
                 """COV SETUP"""
 
-                # Set up k
+                # Set up m to m
                 c_mm = C_mm_all[step,stepped_previously].reshape(-1,1)
-                #c_dm = np.matmul(G,C_mm_all[step,:]).reshape(-1,1)
-                c_dm = C_dm_all[step,:].reshape(-1,1)
 
                 # Lookup all closest location semi-variances to each other (efficiently)
                 C_mm = (np.ravel(C_mm_all)[(stepped_previously + (stepped_previously * C_mm_all.shape[1]).reshape((-1,1))).ravel()]).reshape(stepped_previously.size, stepped_previously.size)
+            
                 
-                # Efficient lookup of Greens
-                #C_dd = GG_K_sep
-                
-                if len(stepped_previously) >= 1:
-                    #C_dm = np.matmul(G,C_mm_all[:,stepped_previously]).T
-                    C_dm = C_dm_all[stepped_previously,:]
+                # Set up d to m
+                if sim_stochastic == False:
+                    c_dm = C_dm_all[step,:].reshape(-1,1)
 
-                c_vm = np.vstack((c_mm,c_dm))
-                
-                C_vm = np.zeros((len(C_dd)+len(C_mm),len(C_dd)+len(C_mm)))
-                C_vm[-len(C_dd):,-len(C_dd):] = C_dd
-                
-                if len(stepped_previously) >= 1:    
-                    C_vm[:len(C_mm),:len(C_mm)] = C_mm
-                    C_vm[:len(C_mm),-len(C_dd):] = C_dm
-                    C_vm[-len(C_dd):,:len(C_mm)] = C_dm.T
+                    if len(stepped_previously) >= 1:
+                        #C_dm = np.matmul(G,C_mm_all[:,stepped_previously]).T
+                        C_dm = C_dm_all[stepped_previously,:]
 
-                v_cond_var = m_DSS[stepped_previously,realization].reshape(-1,1)
-                
-                if len_stepped > 0:
-                    v_cond_var = np.vstack((v_cond_var,observations.reshape(-1,1))).T
-                else:
-                    v_cond_var = observations.reshape(-1,1).T
-
-
-                """SIMPLE KRIGING (SK)"""
-                
-                if solve_cho == True:
-                    cho_lower = sp.linalg.cho_factor(C_vm)
-                    kriging_weights = sp.linalg.cho_solve(cho_lower,c_vm)
-                else:
-                    kriging_weights = np.linalg.solve(C_vm,c_vm)
+                    c_vm = np.vstack((c_mm,c_dm))
                     
-                #sigma_sq_k = C_mm_all[step,step] - np.float(kriging_weights.T*c_vm)
-                sigma_sq_k = self.target_var - np.float(kriging_weights.T*c_vm)
+                    C_vm = np.zeros((len(C_dd)+len(C_mm),len(C_dd)+len(C_mm)))
+                    C_vm[-len(C_dd):,-len(C_dd):] = C_dd
+                    
+                    if len(stepped_previously) >= 1:    
+                        C_vm[:len(C_mm),:len(C_mm)] = C_mm
+                        C_vm[:len(C_mm),-len(C_dd):] = C_dm
+                        C_vm[-len(C_dd):,:len(C_mm)] = C_dm.T
 
-                if sigma_sq_k < 0.0:
-                    print("")
-                    print("Negative kriging variance: %s" %sigma_sq_k)
-                    print("")
-                    kriging_weights[kriging_weights<0] = 0
-                    #sigma_sq_k = C_mm_all[step,step] - np.float(kriging_weights.T*c_vm)
-                    sigma_sq_k = self.target_var - np.float(kriging_weights.T*c_vm)
-                
-                mu_k = np.float(np.array(kriging_weights.T@(v_cond_var.T - self.target_mean) + self.target_mean))
-                
-                if collect_all == True:
-                    m_k, idx_nv = self.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = True)
-                    self.idx_nv_collect.append(idx_nv)
-                    self.kriging_mv_collect.append((mu_k, sigma_sq_k))
+                    v_cond_var = m_DSS[stepped_previously,realization].reshape(-1,1)
+                    
+                    if len_stepped > 0:
+                        v_cond_var = np.vstack((v_cond_var,observations.reshape(-1,1)))
+                    else:
+                        v_cond_var = observations.reshape(-1,1)
                 else:
-                    m_k = self.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = False)
-                
-                
+                    if len_stepped > 1:
+                        v_cond_var = m_DSS[stepped_previously,realization].reshape(-1,1)
+                        c_vm = c_mm
+                        C_vm = C_mm
+                    else:
+                        m_k = self.target_mean
+
+                if m_k == None:
+                    """SIMPLE KRIGING (SK)"""
+                    
+                    if solve_cho == True:
+                        cho_lower = sp.linalg.cho_factor(C_vm)
+                        kriging_weights = sp.linalg.cho_solve(cho_lower,c_vm)
+                    else:
+                        kriging_weights = np.linalg.solve(C_vm,c_vm)
+                    
+                    #kriging_weights[kriging_weights<0.01] = 0.0
+
+                    sigma_sq_k = self.target_var - np.float(kriging_weights.reshape(1,-1)@c_vm)
+
+                    if sigma_sq_k < 0.0:
+                        print("")
+                        print("Negative kriging variance: %s" %sigma_sq_k)
+                        print("")
+                        kriging_weights[kriging_weights<0] = 0
+                        sigma_sq_k = self.target_var - np.float(kriging_weights.reshape(1,-1)@c_vm)
+                    
+                    mu_k = np.float(np.array(kriging_weights.reshape(1,-1)@(v_cond_var - self.target_mean) + self.target_mean))
+                    
+                    if collect_all == True:
+                        m_k, idx_nv = self.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = True)
+                        self.idx_nv_collect.append(idx_nv)
+                        self.kriging_mv_collect.append((mu_k, sigma_sq_k))
+                    else:
+                        m_k = self.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = False)
 
                 m_DSS[step,realization] = m_k
                 
@@ -1191,7 +1203,7 @@ class SDSS(MiClass):
 
     def realization_to_sh_coeff(self, r_at, set_nmax = None):
         
-        self.grid_glq(nmax = self.N_SH, r_at = r_at)
+        #self.grid_glq(nmax = self.N_SH, r_at = r_at)
 
         if set_nmax == None:
             set_nmax = self.grid_glq_nmax
