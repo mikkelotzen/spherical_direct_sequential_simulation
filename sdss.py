@@ -279,6 +279,21 @@ class SDSS(MiClass):
             ag,bg = laplace.fit(self.data)
             mod_data = np.random.laplace(ag,bg,size=100000)
             data_sorted = np.sort(mod_data)
+        elif model_hist == "laplace":
+            rv = laplace()
+            self.data = laplace.rvs(loc = 0, scale=1, size=self.N_grid)
+            self.target_var = 2*np.var(self.data)
+            self.target_mean = 0.0
+            data_sorted = np.sort(self.data)
+
+            set_nmax = self.grid_glq_nmax
+
+            C_cilm = pyshtools.expand.SHExpandGLQ(self.data.reshape(self.grid_glq_nmax+1,2*self.grid_glq_nmax+1), self.grid_glq_w_shtools, self.grid_glq_zero, [1, 1, set_nmax])
+            C_index = np.transpose(pyshtools.shio.SHCilmToCindex(C_cilm))
+
+            self.g_prior = mt_util.gauss_vector_zeroth(C_index, set_nmax, i_n = 0, i_m = 1)
+            self.g_cilm = C_cilm.copy()
+
         else:
             data_sorted = np.sort(self.data)
     
@@ -890,28 +905,33 @@ class SDSS(MiClass):
         plt.show()
 
 
-    def covmod_lsq_equiv(self, obs, C_mm, G, r_at):      
+    def covmod_lsq_equiv(self, obs, C_mm, G, r_at, geomag_scale = True):      
         obs = obs.reshape(-1,1)
         C_e = np.zeros((len(obs),len(obs)))
         C_e[np.arange(1,len(obs)),np.arange(1,len(obs))] = self.C_e_const**2
-        S = C_e + G*self.C_mm_all*G.T
+        S = C_e + G@self.C_mm_all@G.T
         T = np.linalg.inv(S)
-        self.m_equiv_lsq = self.C_mm_all*G.T*T*obs
+        self.m_equiv_lsq = self.C_mm_all@G.T@T@obs
         
-        self.lsq_equiv_pred = G*self.m_equiv_lsq
+        self.lsq_equiv_pred = G@self.m_equiv_lsq
         self.lsq_equiv_res = obs - self.lsq_equiv_pred
 
-        C_cilm = pyshtools.expand.SHExpandGLQ(self.m_equiv_lsq.reshape(self.grid_glq_nmax+1,2*self.grid_glq_nmax+1), self.grid_glq_w_shtools, self.grid_glq_zero, [2, 1, self.grid_glq_nmax])
-        nm_C = mt_util.array_nm(self.grid_glq_nmax)
+        self.g_lsq_equiv, _ = mt_util.sh_expand_glq(self.m_equiv_lsq, self.grid_glq_nmax, self.grid_glq_w_shtools, self.grid_glq_zero, self.grid_glq_nmax, geomag_scale = geomag_scale, geomag_r_at = r_at)
 
-        C_corr_sh = 1/(nm_C[:,[0]]+1)*1/(self.a/r_at)**(nm_C[:,[0]]+2)
-        
-        C_index = np.transpose(pyshtools.shio.SHCilmToCindex(C_cilm))
-        C_index = C_index[1:,:]*C_corr_sh
+        #C_cilm = pyshtools.expand.SHExpandGLQ(self.m_equiv_lsq.reshape(self.grid_glq_nmax+1,2*self.grid_glq_nmax+1), self.grid_glq_w_shtools, self.grid_glq_zero, [2, 1, self.grid_glq_nmax])
 
-        C_vec = mt_util.gauss_vector(C_index, self.grid_glq_nmax, i_n = 0, i_m = 1)
+        #C_index = np.transpose(pyshtools.shio.SHCilmToCindex(C_cilm))
+
+        #if geomag_scale == True:
+        #    nm_C = mt_util.array_nm(self.grid_glq_nmax)
+        #    C_corr_sh = 1/(nm_C[:,[0]]+1)*1/(self.a/r_at)**(nm_C[:,[0]]+2)
+        #    C_index = C_index[1:,:]*C_corr_sh
+        #else:
+        #    C_index = C_index[1:,:]
+
+        #C_vec = mt_util.gauss_vector(C_index, self.grid_glq_nmax, i_n = 0, i_m = 1)
         
-        self.g_lsq_equiv = C_vec
+        #self.g_lsq_equiv = C_vec
 
 
     def covmod_lsq_equiv_sep(self, obs, semivar_c, semivar_l, target_var_c, target_var_l, G_d_sep, 
@@ -1179,7 +1199,7 @@ class SDSS(MiClass):
 
         self.m_DSS = m_DSS
 
-        self.m_DSS_pred = self.G*self.m_DSS
+        self.m_DSS_pred = self.G@self.m_DSS
         self.m_DSS_res = observations.reshape(-1,1) - self.m_DSS_pred
 
         rmse_leg = np.sqrt(np.mean(np.power(self.m_DSS_res,2),axis=0))
@@ -1201,7 +1221,7 @@ class SDSS(MiClass):
         plt.show()
 
 
-    def realization_to_sh_coeff(self, r_at, set_nmax = None):
+    def realization_to_sh_coeff(self, r_at, set_nmax = None, set_norm = 1, geomag_scale = True):
         
         #self.grid_glq(nmax = self.N_SH, r_at = r_at)
 
@@ -1211,16 +1231,22 @@ class SDSS(MiClass):
         self.g_spec = []
 
         for i in np.arange(0,self.N_sim):
-
-            C_cilm = pyshtools.expand.SHExpandGLQ(self.m_DSS[:,[i]].reshape(self.grid_glq_nmax+1,2*self.grid_glq_nmax+1), self.grid_glq_w_shtools, self.grid_glq_zero, [2, 1, set_nmax])
-            nm_C = mt_util.array_nm(set_nmax)
-
-            C_corr_sh = 1/(nm_C[:,[0]]+1)*1/(self.a/r_at)**(nm_C[:,[0]]+2)
             
-            C_index = np.transpose(pyshtools.shio.SHCilmToCindex(C_cilm))
-            C_index = C_index[1:,:]*C_corr_sh
+            C_vec, _ = mt_util.sh_expand_glq(self.m_DSS[:,[i]], self.grid_glq_nmax, self.grid_glq_w_shtools, self.grid_glq_zero, set_nmax, set_norm = set_norm, geomag_scale = geomag_scale, geomag_r_at = r_at)
 
-            C_vec = mt_util.gauss_vector(C_index, set_nmax, i_n = 0, i_m = 1)
+            #C_cilm = pyshtools.expand.SHExpandGLQ(self.m_DSS[:,[i]].reshape(self.grid_glq_nmax+1,2*self.grid_glq_nmax+1), self.grid_glq_w_shtools, self.grid_glq_zero, [2, 1, set_nmax])
+
+            #C_index = np.transpose(pyshtools.shio.SHCilmToCindex(C_cilm))
+
+            #if geomag_scale == True:
+            #    nm_C = mt_util.array_nm(set_nmax)
+            #    C_corr_sh = 1/(nm_C[:,[0]]+1)*1/(self.a/r_at)**(nm_C[:,[0]]+2)
+            #    C_index = C_index[1:,:]*C_corr_sh
+
+            #    C_vec = mt_util.gauss_vector(C_index, set_nmax, i_n = 0, i_m = 1)
+            #else:
+            #    C_index = C_index[1:,:]
+            #    C_vec = mt_util.gauss_vector_zeroth(C_index, set_nmax, i_n = 0, i_m = 1)
             
             self.g_spec.append(C_vec)
 
