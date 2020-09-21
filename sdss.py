@@ -179,14 +179,14 @@ class SDSS(MiClass):
                                 "phi":np.hstack((data_swarm["SW_A"][:,3],data_swarm["SW_B"][:,3],data_swarm["SW_C"][:,3])), 
                                 "N":np.hstack((data_swarm["SW_A"][:,13],data_swarm["SW_B"][:,13],data_swarm["SW_C"][:,13])).shape[0]}
 
-        self.swarm_theta = data_swarm["theta"]
-        self.swarm_phi = data_swarm["phi"]
-        self.swarm_radius = data_swarm["radius"]
-        self.swarm_obs = data_swarm["obs"]
-        self.swarm_N = data_swarm["N"]
+        self.grid_theta = data_swarm["theta"]
+        self.grid_phi = data_swarm["phi"]
+        self.grid_radial = data_swarm["radius"]
+        self.grid_obs = data_swarm["obs"]
+        self.grid_N = data_swarm["N"]
 
         if use_obs == True:
-            self.data = self.swarm_obs
+            self.data = self.grid_obs
             # Target statistics
             if target_var_factor is not None:
                 self.target_var = target_var_factor*np.var(self.data)
@@ -202,6 +202,10 @@ class SDSS(MiClass):
         # Load Gauss coefficients from data files
         if np.logical_or(self.sim_type == "core", self.sim_type == "sat"):
             Gauss_in = np.loadtxt('sh_models/Julien_Gauss_JFM_E-8_snap.dat')
+
+        elif self.sim_type == "core_ens":
+            g = (np.genfromtxt("lithosphere_prior/grids/shcoeff_Dynamo/gnm_midpath.dat").T*10**9)[:,0]
+            N_SH_max = self.N_SH
 
         elif self.sim_type == "surface":
             Gauss_in = np.loadtxt('sh_models/Masterton_13470_total_it1_0.glm')
@@ -226,13 +230,18 @@ class SDSS(MiClass):
         else:
             Gauss_in = np.loadtxt(args[0], comments='%')
 
-        if self.sim_type != "separation":
+        if np.logical_and(self.sim_type != "separation", self.sim_type != "core_ens"):
             # Compute Gauss coefficients as vector
             g = mt_util.gauss_vector(Gauss_in, self.N_SH, i_n = 2, i_m = 3)
             N_SH_max = self.N_SH
             
         # Generate field
         self.ensemble_B(g, nmax = N_SH_max, N_mf = 2, mf = True, nmf = False, r_at = self.r_grid, grid_type = grid_type)
+
+        self.data = self.B_ensemble[:,0]
+        del self.B_ensemble
+
+        """
         if grid_type == "glq":
             self.data = self.B_ensemble_glq[:,0]
             del self.B_ensemble_glq
@@ -244,6 +253,7 @@ class SDSS(MiClass):
             del self.B_ensemble_eqa
         elif grid_type == "swarm":
             self.data = self.B_ensemble_swarm[:,0]
+        """
 
         if grid_type != "swarm":
             self.r_grid_repeat = np.ones(self.N_grid,)*self.r_grid
@@ -270,32 +280,35 @@ class SDSS(MiClass):
         from sklearn.preprocessing import QuantileTransformer
         
         # Linearly spaced value array with start/end very close to zero/one
-        #start = 1e-16 #Python min
-        start = 0.01
+        start = 1e-16 #Python min
+        #start = 0.001
         linspace = np.linspace(start,1-start,normsize)
         
         # Possible model target histogram cdf/ccdf
         if model_hist == True:
             ag,bg = laplace.fit(self.data)
             mod_data = np.random.laplace(ag,bg,size=100000)
-            data_sorted = np.sort(mod_data)
+            #data_sorted = np.sort(mod_data)
+            data_sorted = mod_data
         elif model_hist == "laplace":
             rv = laplace()
             self.data = laplace.rvs(loc = 0, scale=1, size=self.N_grid)
-            self.target_var = 2*np.var(self.data)
+            self.target_var = np.var(self.data)
             self.target_mean = 0.0
-            data_sorted = np.sort(self.data)
+            #data_sorted = np.sort(self.data)
+            data_sorted = self.data
 
-            set_nmax = self.grid_glq_nmax
+            set_nmax = self.grid_nmax
 
-            C_cilm = pyshtools.expand.SHExpandGLQ(self.data.reshape(self.grid_glq_nmax+1,2*self.grid_glq_nmax+1), self.grid_glq_w_shtools, self.grid_glq_zero, [1, 1, set_nmax])
+            C_cilm = pyshtools.expand.SHExpandGLQ(self.data.reshape(self.grid_nmax+1,2*self.grid_nmax+1), self.grid_w_shtools, self.grid_zero, [1, 1, set_nmax])
             C_index = np.transpose(pyshtools.shio.SHCilmToCindex(C_cilm))
 
             self.g_prior = mt_util.gauss_vector_zeroth(C_index, set_nmax, i_n = 0, i_m = 1)
             self.g_cilm = C_cilm.copy()
 
         else:
-            data_sorted = np.sort(self.data)
+            #data_sorted = np.sort(self.data)
+            data_sorted = self.data
     
         if rangn_geomspace == False:
             rangn = np.linspace(-rangn_lim,rangn_lim,rangn_N)
@@ -305,7 +318,7 @@ class SDSS(MiClass):
         rangv = np.linspace(start,rangv_lim,rangv_N)
             
         # Normscored local conditional distributions
-        
+
         # Initialize matrices
         CQF_dist = np.zeros((len(rangn),len(rangv),len(linspace)))
         CQF_mean = np.zeros((len(rangn),len(rangv)))
@@ -324,7 +337,8 @@ class SDSS(MiClass):
         print("")
         for i in range(0,len(rangn)):
             for j in range(0,len(rangv)):
-                CQF_dist[i,j,:] = np.sort(qt.inverse_transform((norm.ppf(linspace,loc=rangn[i],scale=np.sqrt(rangv[j]))).reshape(-1,1)).ravel(),axis=0)
+                #CQF_dist[i,j,:] = np.sort(qt.inverse_transform((norm.ppf(linspace,loc=rangn[i],scale=np.sqrt(rangv[j]))).reshape(-1,1)).ravel(),axis=0)
+                CQF_dist[i,j,:] = qt.inverse_transform((norm.ppf(linspace,loc=rangn[i],scale=np.sqrt(rangv[j]))).reshape(-1,1)).ravel()
                 CQF_mean[i,j] = np.mean(CQF_dist[i,j,:],axis=0,dtype=np.float64)
                 CQF_var[i,j] = np.var(CQF_dist[i,j,:],axis=0,ddof=1,dtype=np.float64)
                 #CQF_var[i,j] = np.var(CQF_dist[i,j,:],axis=0,ddof=0,dtype=np.float64)
@@ -872,9 +886,9 @@ class SDSS(MiClass):
     def integrating_kernel(self, obs_obj, C_e_const = 2):
 
         G_mcal = mt_util.Gr_vec(self.r_grid, obs_obj.r_grid, self.lat, obs_obj.lat, self.lon, obs_obj.lon)
-        self.G = np.pi/(self.grid_glq_nmax+0.5)*np.multiply(self.grid_glq_w,G_mcal) # +0.5 for parity with SHTOOLS
+        self.G = np.pi/(self.grid_nmax+0.5)*np.multiply(self.grid_w,G_mcal) # +0.5 for parity with SHTOOLS
 
-        C_e = np.diag(C_e_const**2*np.ones(obs_obj.swarm_N,)) # No need to store C_e outside of here
+        C_e = np.diag(C_e_const**2*np.ones(obs_obj.grid_N,)) # No need to store C_e outside of here
 
         self.C_mm_all = self.target_var-self.sv_lut
 
@@ -916,20 +930,20 @@ class SDSS(MiClass):
         self.lsq_equiv_pred = G@self.m_equiv_lsq
         self.lsq_equiv_res = obs - self.lsq_equiv_pred
 
-        self.g_lsq_equiv, _ = mt_util.sh_expand_glq(self.m_equiv_lsq, self.grid_glq_nmax, self.grid_glq_w_shtools, self.grid_glq_zero, self.grid_glq_nmax, geomag_scale = geomag_scale, geomag_r_at = r_at)
+        self.g_lsq_equiv, _ = mt_util.sh_expand_glq(self.m_equiv_lsq, self.grid_nmax, self.grid_w_shtools, self.grid_zero, self.N_SH, geomag_scale = geomag_scale, geomag_r_at = r_at)
 
-        #C_cilm = pyshtools.expand.SHExpandGLQ(self.m_equiv_lsq.reshape(self.grid_glq_nmax+1,2*self.grid_glq_nmax+1), self.grid_glq_w_shtools, self.grid_glq_zero, [2, 1, self.grid_glq_nmax])
+        #C_cilm = pyshtools.expand.SHExpandGLQ(self.m_equiv_lsq.reshape(self.grid_nmax+1,2*self.grid_nmax+1), self.grid_w_shtools, self.grid_zero, [2, 1, self.grid_nmax])
 
         #C_index = np.transpose(pyshtools.shio.SHCilmToCindex(C_cilm))
 
         #if geomag_scale == True:
-        #    nm_C = mt_util.array_nm(self.grid_glq_nmax)
+        #    nm_C = mt_util.array_nm(self.grid_nmax)
         #    C_corr_sh = 1/(nm_C[:,[0]]+1)*1/(self.a/r_at)**(nm_C[:,[0]]+2)
         #    C_index = C_index[1:,:]*C_corr_sh
         #else:
         #    C_index = C_index[1:,:]
 
-        #C_vec = mt_util.gauss_vector(C_index, self.grid_glq_nmax, i_n = 0, i_m = 1)
+        #C_vec = mt_util.gauss_vector(C_index, self.grid_nmax, i_n = 0, i_m = 1)
         
         #self.g_lsq_equiv = C_vec
 
@@ -962,6 +976,7 @@ class SDSS(MiClass):
 
 
     def conditional_lookup(self, mu_k, sigma_sq_k, dm, dv, unit_d = False, scaling = True, return_idx = False):
+        from scipy.stats import norm
         #conditional_lookup(self, cond_mean, cond_var, cond_dist, cond_dist_size, mu_k, sigma_sq_k, dm, dv):
         #conditional_lookup(core.CQF_mean, core.CQF_var, core.CQF_dist, core.condtab_normsize, mu_k, sigma_sq_k, dm_c, dv_c)
 
@@ -1202,6 +1217,9 @@ class SDSS(MiClass):
         self.m_DSS_pred = self.G@self.m_DSS
         self.m_DSS_res = observations.reshape(-1,1) - self.m_DSS_pred
 
+        m_DSS_mean = np.mean(self.m_DSS,axis=-1).reshape(-1,1)@np.ones((1,N_sim))
+        self.C_DSS = 1/(N_sim-1)*(self.m_DSS-m_DSS_mean)@(self.m_DSS-m_DSS_mean).T
+
         rmse_leg = np.sqrt(np.mean(np.power(self.m_DSS_res,2),axis=0))
         print("")
         print("Seqsim RMSE:\t {}".format(rmse_leg))
@@ -1226,15 +1244,15 @@ class SDSS(MiClass):
         #self.grid_glq(nmax = self.N_SH, r_at = r_at)
 
         if set_nmax == None:
-            set_nmax = self.grid_glq_nmax
+            set_nmax = self.grid_nmax
 
         self.g_spec = []
 
         for i in np.arange(0,self.N_sim):
             
-            C_vec, _ = mt_util.sh_expand_glq(self.m_DSS[:,[i]], self.grid_glq_nmax, self.grid_glq_w_shtools, self.grid_glq_zero, set_nmax, set_norm = set_norm, geomag_scale = geomag_scale, geomag_r_at = r_at)
+            C_vec, _ = mt_util.sh_expand_glq(self.m_DSS[:,[i]], self.grid_nmax, self.grid_w_shtools, self.grid_zero, set_nmax, set_norm = set_norm, geomag_scale = geomag_scale, geomag_r_at = r_at)
 
-            #C_cilm = pyshtools.expand.SHExpandGLQ(self.m_DSS[:,[i]].reshape(self.grid_glq_nmax+1,2*self.grid_glq_nmax+1), self.grid_glq_w_shtools, self.grid_glq_zero, [2, 1, set_nmax])
+            #C_cilm = pyshtools.expand.SHExpandGLQ(self.m_DSS[:,[i]].reshape(self.grid_nmax+1,2*self.grid_nmax+1), self.grid_w_shtools, self.grid_zero, [2, 1, set_nmax])
 
             #C_index = np.transpose(pyshtools.shio.SHCilmToCindex(C_cilm))
 
@@ -1265,7 +1283,7 @@ class SDSS(MiClass):
         """
 
         """Number of simulations"""
-        m_DSS = np.zeros((core.grid_glq_N + lithos.grid_glq_N, N_sim))
+        m_DSS = np.zeros((core.grid_N + lithos.grid_N, N_sim))
         time_average = np.zeros((N_sim))
 
         """save variables"""
@@ -1289,7 +1307,7 @@ class SDSS(MiClass):
             np.random.seed()
 
             # Initialize sequential simulation with random start
-            step_rnd_path = np.arange(core.grid_glq_N + lithos.grid_glq_N)
+            step_rnd_path = np.arange(core.grid_N + lithos.grid_N)
             
             # Randomize index array to create random path
             random.shuffle(step_rnd_path)
@@ -1398,7 +1416,7 @@ class SDSS(MiClass):
                     mu_k = np.float(np.array(kriging_weights.T@(v_cond_var.T - 0.0) + 0.0))
                 
                 
-                if step < core.grid_glq_N:
+                if step < core.grid_N:
                     m_k = conditional_lookup(core.CQF_mean, core.CQF_var, core.CQF_dist, core.condtab_normsize, mu_k, sigma_sq_k, dm_c, dv_c)
                 else:
                     m_k = conditional_lookup(lithos.CQF_mean, lithos.CQF_var, lithos.CQF_dist, lithos.condtab_normsize, mu_k, sigma_sq_k, dm_l, dv_l)
@@ -1412,7 +1430,7 @@ class SDSS(MiClass):
                 # Get running sense of size of error compared to prior
                 err_mag = np.log10(float(np.abs((prior_data)[step]-m_k)))
 
-                if step < core.grid_glq_N:
+                if step < core.grid_N:
                     len_walked_c += 1
                     err_mag_sum_c += err_mag
                     err_mag_avg = float(err_mag_sum_c/len_walked_c)
@@ -1421,7 +1439,7 @@ class SDSS(MiClass):
                     err_mag_sum_l += err_mag
                     err_mag_avg = float(err_mag_sum_l/len_walked_l)
                 
-                mt_util.printProgressBar (len(stepped_previously), core.grid_glq_N + lithos.grid_glq_N, err_mag_avg, subject = ' realization nr. %d' % realization)
+                mt_util.printProgressBar (len(stepped_previously), core.grid_N + lithos.grid_N, err_mag_avg, subject = ' realization nr. %d' % realization)
 
             # End timing
             t1 = time.time()
@@ -1439,15 +1457,15 @@ class SDSS(MiClass):
             else:
                 print('Total elapsed time: %.3f' %(np.sum(time_average[:(realization+1)])*60**(-1)), 'minutes', '')
                 
-            print('C Variance: %.3f' %np.var(m_DSS[:core.grid_glq_N,realization]))
-            print('C Mean: %.3f' %np.mean(m_DSS[:core.grid_glq_N,realization]))
-            print('C Max: %.3f' %np.max(m_DSS[:core.grid_glq_N,realization]))
-            print('C Min: %.3f' %np.min(m_DSS[:core.grid_glq_N,realization]))
+            print('C Variance: %.3f' %np.var(m_DSS[:core.grid_N,realization]))
+            print('C Mean: %.3f' %np.mean(m_DSS[:core.grid_N,realization]))
+            print('C Max: %.3f' %np.max(m_DSS[:core.grid_N,realization]))
+            print('C Min: %.3f' %np.min(m_DSS[:core.grid_N,realization]))
 
-            print('L Variance: %.3f' %np.var(m_DSS[-lithos.grid_glq_N:,realization]))
-            print('L Mean: %.3f' %np.mean(m_DSS[-lithos.grid_glq_N:,realization]))
-            print('L Max: %.3f' %np.max(m_DSS[-lithos.grid_glq_N:,realization]))
-            print('L Min: %.3f' %np.min(m_DSS[-lithos.grid_glq_N:,realization]))
+            print('L Variance: %.3f' %np.var(m_DSS[-lithos.grid_N:,realization]))
+            print('L Mean: %.3f' %np.mean(m_DSS[-lithos.grid_N:,realization]))
+            print('L Max: %.3f' %np.max(m_DSS[-lithos.grid_N:,realization]))
+            print('L Min: %.3f' %np.min(m_DSS[-lithos.grid_N:,realization]))
             
             print('Run nr.:', realization+1)
             print('')
