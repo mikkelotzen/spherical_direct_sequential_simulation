@@ -883,7 +883,7 @@ class SDSS(MiClass):
         self.pics_m_DSS = pics_m_DSS
 
 
-    def integrating_kernel(self, obs_obj, C_e_const = 2):
+    def integrating_kernel(self, obs_obj, C_e_const = 2, print_ti_est_res = False):
 
         G_mcal = mt_util.Gr_vec(self.r_grid, obs_obj.r_grid, self.lat, obs_obj.lat, self.lon, obs_obj.lon)
         self.G = np.pi/(self.grid_nmax+0.5)*np.multiply(self.grid_w,G_mcal) # +0.5 for parity with SHTOOLS
@@ -900,23 +900,24 @@ class SDSS(MiClass):
 
         self.C_e_const = C_e_const
 
-        # Compute forward and get residuals to synthetic observations
-        fwd_leg = self.G*self.data.reshape(-1,1)
-        fwd_leg_res = obs_obj.data - fwd_leg.reshape(-1,)
+        if print_ti_est_res == True:
+            # Compute forward and get residuals to synthetic observations
+            fwd_leg = self.G*self.data.reshape(-1,1)
+            fwd_leg_res = obs_obj.data - fwd_leg.reshape(-1,)
 
-        # RMSE
-        rmse_leg = np.sqrt(np.mean(np.power(fwd_leg_res,2)))
+            # RMSE
+            rmse_leg = np.sqrt(np.mean(np.power(fwd_leg_res,2)))
 
-        print("")
-        print("Gauss-Legendre RMSE:\t %0.12f" %rmse_leg)
-        plt.figure()
-        y,binEdges=np.histogram(fwd_leg_res,bins=200)
-        bincenters = 0.5*(binEdges[1:]+binEdges[:-1])
-        plt.plot(bincenters,y,'C0',label="Gauss-Legendre")
-        plt.xlabel("Radial field residuals [nT]")
-        plt.ylabel("Count")
-        plt.legend()
-        plt.show()
+            print("")
+            print("Gauss-Legendre RMSE:\t %0.12f" %rmse_leg)
+            plt.figure()
+            y,binEdges=np.histogram(fwd_leg_res,bins=200)
+            bincenters = 0.5*(binEdges[1:]+binEdges[:-1])
+            plt.plot(bincenters,y,'C0',label="Gauss-Legendre")
+            plt.xlabel("Radial field residuals [nT]")
+            plt.ylabel("Count")
+            plt.legend()
+            plt.show()
 
 
     def covmod_lsq_equiv(self, obs, C_mm, G, r_at, geomag_scale = True):      
