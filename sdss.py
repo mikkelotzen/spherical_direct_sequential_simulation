@@ -204,7 +204,18 @@ class SDSS(MiClass):
             Gauss_in = np.loadtxt('sh_models/Julien_Gauss_JFM_E-8_snap.dat')
 
         elif self.sim_type == "core_ens":
-            g = (np.genfromtxt("lithosphere_prior/grids/shcoeff_Dynamo/gnm_midpath.dat").T*10**9)[:,0]
+            #g = (np.genfromtxt("lithosphere_prior/grids/shcoeff_Dynamo/gnm_midpath.dat").T*10**9)[:,0]
+
+            g_core_ens = np.genfromtxt("lithosphere_prior/grids/shcoeff_Dynamo/gnm_midpath.dat").T*10**9
+            self.ensemble_B(g_core_ens, nmax = self.N_SH, r_at = self.r_cmb, grid_type = "glq")
+            self.m_core_ens = self.B_ensemble[:,0,:].copy()
+
+            var_core_ens = np.var(self.m_core_ens,axis=0)
+
+            idx_close_to_var = np.argwhere(np.logical_and(var_core_ens>0.9970*np.mean(var_core_ens), var_core_ens<1.0030*np.mean(var_core_ens)))
+
+            g = np.ravel(g_core_ens[:,idx_close_to_var[-1]])
+
             N_SH_max = self.N_SH
 
         elif self.sim_type == "surface":
@@ -305,7 +316,8 @@ class SDSS(MiClass):
 
             self.g_prior = mt_util.gauss_vector_zeroth(C_index, set_nmax, i_n = 0, i_m = 1)
             self.g_cilm = C_cilm.copy()
-
+        elif model_hist == "ensemble":
+            data_sorted = np.ravel(self.m_core_ens)
         else:
             #data_sorted = np.sort(self.data)
             data_sorted = self.data
