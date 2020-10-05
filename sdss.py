@@ -208,7 +208,7 @@ class SDSS(MiClass):
 
             g_core_ens = np.genfromtxt("lithosphere_prior/grids/shcoeff_Dynamo/gnm_midpath.dat").T*10**9
             self.ensemble_B(g_core_ens, nmax = self.N_SH, r_at = self.r_cmb, grid_type = "glq")
-            self.m_core_ens = self.B_ensemble[:,0,:].copy()
+            self.m_core_ens = self.B_ensemble[:,0,:].copy()[:,200:]
 
             var_core_ens = np.var(self.m_core_ens,axis=0)
 
