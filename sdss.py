@@ -207,16 +207,18 @@ class SDSS(MiClass):
             #g = (np.genfromtxt("lithosphere_prior/grids/shcoeff_Dynamo/gnm_midpath.dat").T*10**9)[:,0]
 
             g_core_ens = np.genfromtxt("lithosphere_prior/grids/shcoeff_Dynamo/gnm_midpath.dat").T*10**9
+            g_core_ens = g_core_ens[:mt_util.shc_vec_len(self.N_SH),:]
             self.ensemble_B(g_core_ens, nmax = self.N_SH, r_at = self.r_cmb, grid_type = "glq")
             self.m_core_ens = self.B_ensemble[:,0,:].copy()[:,200:]
 
             var_core_ens = np.var(self.m_core_ens,axis=0)
 
-            idx_close_to_var = np.argwhere(np.logical_and(var_core_ens>0.9970*np.mean(var_core_ens), var_core_ens<1.0030*np.mean(var_core_ens)))
+            idx_close_to_var = np.argwhere(np.logical_and(var_core_ens>0.9995*np.mean(var_core_ens), var_core_ens<1.0005*np.mean(var_core_ens)))
 
             g = np.ravel(g_core_ens[:,idx_close_to_var[-1]])
 
             N_SH_max = self.N_SH
+            self.ens_idx = int(idx_close_to_var[-1])
 
         elif self.sim_type == "surface":
             Gauss_in = np.loadtxt('sh_models/Masterton_13470_total_it1_0.glm')
@@ -476,6 +478,8 @@ class SDSS(MiClass):
             import numpy as np
             
             sv_model = C0 + C1*(1-np.exp(-3*h/a))
+            #sv_model = C0 + C1*(1-np.exp(-h/a))
+            #sv_model = C0 + C1*(np.exp(-h/a))
             
         elif sv_mode == 'power':
             '''
@@ -681,6 +685,8 @@ class SDSS(MiClass):
                 if zero_nugget == False:
                     def semivar_return(lags_model, a, C0, C1):
                         return C0 + C1*(1-np.exp(-3*lags_model/a))
+                        #return C0 + C1*(1-np.exp(-lags_model/a))
+                        #return C0 + C1*(np.exp(-lags_model/a))
                 elif hit_target_var == True:
                     def semivar_return(lags_model, a):
                         return (1-np.exp(-3*lags_model/a))   
@@ -895,14 +901,17 @@ class SDSS(MiClass):
         self.pics_m_DSS = pics_m_DSS
 
 
-    def integrating_kernel(self, obs_obj, C_e_const = 2, print_ti_est_res = False):
+    def integrating_kernel(self, obs_obj, C_e_const = 2, print_ti_est_res = False, C_mm_supply = None):
 
         G_mcal = mt_util.Gr_vec(self.r_grid, obs_obj.r_grid, self.lat, obs_obj.lat, self.lon, obs_obj.lon)
         self.G = np.pi/(self.grid_nmax+0.5)*np.multiply(self.grid_w,G_mcal) # +0.5 for parity with SHTOOLS
 
         C_e = np.diag(C_e_const**2*np.ones(obs_obj.grid_N,)) # No need to store C_e outside of here
 
-        self.C_mm_all = self.target_var-self.sv_lut
+        if C_mm_supply is None:
+            self.C_mm_all = self.target_var-self.sv_lut
+        else:
+            self.C_mm_all = C_mm_supply
 
         C_dm_all = self.G*self.C_mm_all
 
@@ -1037,6 +1046,8 @@ class SDSS(MiClass):
           Output
             
         """
+        
+        max_cov = np.max(C_mm_all)
 
         """Number of simulations"""
         self.N_sim = N_sim
@@ -1164,14 +1175,16 @@ class SDSS(MiClass):
                     
                     #kriging_weights[kriging_weights<0.01] = 0.0
 
-                    sigma_sq_k = self.target_var - np.float(kriging_weights.reshape(1,-1)@c_vm)
+                    #sigma_sq_k = self.target_var - np.float(kriging_weights.reshape(1,-1)@c_vm)
+                    sigma_sq_k = max_cov - np.float(kriging_weights.reshape(1,-1)@c_vm)
 
                     if sigma_sq_k < 0.0:
                         print("")
                         print("Negative kriging variance: %s" %sigma_sq_k)
                         print("")
                         kriging_weights[kriging_weights<0] = 0
-                        sigma_sq_k = self.target_var - np.float(kriging_weights.reshape(1,-1)@c_vm)
+                        #sigma_sq_k = self.target_var - np.float(kriging_weights.reshape(1,-1)@c_vm)
+                        sigma_sq_k = max_cov - np.float(kriging_weights.reshape(1,-1)@c_vm)
                     
                     mu_k = np.float(np.array(kriging_weights.reshape(1,-1)@(v_cond_var - self.target_mean) + self.target_mean))
                     
