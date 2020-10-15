@@ -1175,16 +1175,16 @@ class SDSS(MiClass):
                     
                     #kriging_weights[kriging_weights<0.01] = 0.0
 
-                    #sigma_sq_k = self.target_var - np.float(kriging_weights.reshape(1,-1)@c_vm)
-                    sigma_sq_k = max_cov - np.float(kriging_weights.reshape(1,-1)@c_vm)
+                    sigma_sq_k = self.target_var - np.float(kriging_weights.reshape(1,-1)@c_vm)
+                    #sigma_sq_k = max_cov - np.float(kriging_weights.reshape(1,-1)@c_vm)
 
                     if sigma_sq_k < 0.0:
                         print("")
                         print("Negative kriging variance: %s" %sigma_sq_k)
                         print("")
                         kriging_weights[kriging_weights<0] = 0
-                        #sigma_sq_k = self.target_var - np.float(kriging_weights.reshape(1,-1)@c_vm)
-                        sigma_sq_k = max_cov - np.float(kriging_weights.reshape(1,-1)@c_vm)
+                        sigma_sq_k = self.target_var - np.float(kriging_weights.reshape(1,-1)@c_vm)
+                        #sigma_sq_k = max_cov - np.float(kriging_weights.reshape(1,-1)@c_vm)
                     
                     mu_k = np.float(np.array(kriging_weights.reshape(1,-1)@(v_cond_var - self.target_mean) + self.target_mean))
                     
