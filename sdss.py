@@ -320,6 +320,8 @@ class SDSS(MiClass):
             self.g_cilm = C_cilm.copy()
         elif model_hist == "ensemble":
             data_sorted = np.ravel(self.m_core_ens)
+            data_sorted = data_sorted[0.5*np.max(np.abs(data_sorted))>np.abs(data_sorted)]
+            #data_sorted = np.delete(data_sorted, np.abs(data_sorted)>np.max(np.abs(data_sorted))*0.5)
         else:
             #data_sorted = np.sort(self.data)
             data_sorted = self.data
