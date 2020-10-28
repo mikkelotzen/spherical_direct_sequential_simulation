@@ -219,6 +219,7 @@ class SDSS(MiClass):
 
             N_SH_max = self.N_SH
             self.ens_idx = int(idx_close_to_var[-1])
+            #self.g_core_ens = g_core_ens
 
         elif self.sim_type == "surface":
             Gauss_in = np.loadtxt('sh_models/Masterton_13470_total_it1_0.glm')
@@ -954,7 +955,7 @@ class SDSS(MiClass):
         self.lsq_equiv_pred = G@self.m_equiv_lsq
         self.lsq_equiv_res = obs - self.lsq_equiv_pred
 
-        self.g_lsq_equiv, _ = mt_util.sh_expand_glq(self.m_equiv_lsq, self.grid_nmax, self.grid_w_shtools, self.grid_zero, self.N_SH, geomag_scale = geomag_scale, geomag_r_at = r_at)
+        self.g_equiv_lsq, _ = mt_util.sh_expand_glq(self.m_equiv_lsq, self.grid_nmax, self.grid_w_shtools, self.grid_zero, self.N_SH, geomag_scale = geomag_scale, geomag_r_at = r_at)
 
         #C_cilm = pyshtools.expand.SHExpandGLQ(self.m_equiv_lsq.reshape(self.grid_nmax+1,2*self.grid_nmax+1), self.grid_w_shtools, self.grid_zero, [2, 1, self.grid_nmax])
 
