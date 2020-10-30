@@ -7,6 +7,7 @@
 
 ### If the folder "mikkel_tools" is empty:
 `git submodule init`
+
 `git submodule update`
 
 ### Setting up a conda environment to run the code
