@@ -1,1 +1,3 @@
-# spherical_direct_sequential_simulation
+# Spherical Direct Sequential Simulation
+
+
