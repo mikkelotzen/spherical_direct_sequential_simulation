@@ -1,5 +1,5 @@
 # Spherical Direct Sequential Simulation
-
+This work was supported by the European Research Council (ERC) under the European Union’s Horizon 2020 research and innovation programme (Grant agreement No. 772561)
 
 ### Download repository and the dependency submodule mikkel_tools:
 
