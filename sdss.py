@@ -139,10 +139,10 @@ class SDSS(MiClass):
             
         # Load Gauss coefficients from data files
         if np.logical_or(self.sim_type == "core", self.sim_type == "sat"):
-            Gauss_in = np.loadtxt('sh_models/Julien_Gauss_JFM_E-8_snap.dat')
+            Gauss_in = np.loadtxt('mikkel_tools/models_shc/Julien_Gauss_JFM_E-8_snap.dat')
 
         elif self.sim_type == "surface":
-            Gauss_in = np.loadtxt('sh_models/Masterton_13470_total_it1_0.glm')
+            Gauss_in = np.loadtxt('mikkel_tools/models_shc/Masterton_13470_total_it1_0.glm')
  
         else:
             Gauss_in = np.loadtxt(args[0], comments='%')
@@ -201,12 +201,10 @@ class SDSS(MiClass):
 
         # Load Gauss coefficients from data files
         if np.logical_or(self.sim_type == "core", self.sim_type == "sat"):
-            Gauss_in = np.loadtxt('sh_models/Julien_Gauss_JFM_E-8_snap.dat')
+            Gauss_in = np.loadtxt('mikkel_tools/models_shc/Julien_Gauss_JFM_E-8_snap.dat')
 
         elif self.sim_type == "core_ens":
-            #g = (np.genfromtxt("lithosphere_prior/grids/shcoeff_Dynamo/gnm_midpath.dat").T*10**9)[:,0]
-
-            g_core_ens = np.genfromtxt("lithosphere_prior/grids/shcoeff_Dynamo/gnm_midpath.dat").T*10**9
+            g_core_ens = np.genfromtxt("mikkel_tools/models_shc/gnm_midpath.dat").T*10**9
             g_core_ens = g_core_ens[:mt_util.shc_vec_len(self.N_SH),:]
             self.ensemble_B(g_core_ens, nmax = self.N_SH, r_at = self.r_cmb, grid_type = "glq")
             self.m_core_ens = self.B_ensemble[:,0,:].copy()[:,200:]
@@ -222,11 +220,11 @@ class SDSS(MiClass):
             #self.g_core_ens = g_core_ens
 
         elif self.sim_type == "surface":
-            Gauss_in = np.loadtxt('sh_models/Masterton_13470_total_it1_0.glm')
+            Gauss_in = np.loadtxt('mikkel_tools/models_shc/Masterton_13470_total_it1_0.glm')
 
         elif self.sim_type == "separation":
-            Gauss_in_core = np.loadtxt('sh_models/Julien_Gauss_JFM_E-8_snap.dat')
-            Gauss_in_lithos = np.loadtxt('sh_models/Masterton_13470_total_it1_0.glm')
+            Gauss_in_core = np.loadtxt('mikkel_tools/models_shc/Julien_Gauss_JFM_E-8_snap.dat')
+            Gauss_in_lithos = np.loadtxt('mikkel_tools/models_shc/Masterton_13470_total_it1_0.glm')
 
             g_c = mt_util.gauss_vector(Gauss_in_core, self.N_SH, i_n = 2, i_m = 3)
             g_l = mt_util.gauss_vector(Gauss_in_lithos, self.N_SH_secondary, i_n = 2, i_m = 3)
