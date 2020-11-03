@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import pyshtools
 
 import numpy as np
-import GMT_tools as gt
+import mikkel_tools.GMT_tools as gt
 import os
 #import utility as sds_util
 
