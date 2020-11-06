@@ -2,6 +2,7 @@ from mikkel_tools.MiClass import MiClass
 import mikkel_tools.utility as mt_util
 import matplotlib.pyplot as plt
 import pyshtools
+import scipy.linalg as spl
 
 import numpy as np
 import mikkel_tools.GMT_tools as gt
@@ -866,7 +867,98 @@ class SDSS(MiClass):
         self.C1 = C1
         self.C2 = C2
         self.C3 = C3
+
+
+    def cov_model_taper(self, r_at = None, tap_to = 500, tap_exp_p1 = 5, tap_exp_p2 = 2,
+                        tap_scale_start = 0, tap_scale_end = 24, plot_taper = False):
+
+        if r_at == None:
+            r_at = self.a
+
+        tap_to = tap_to + 1 # One extra for overlap between R_add and R
+        n_tap = self.N_SH + tap_to - 1 # And one less in the sum as a result
+
+        # g ensemble and parameters
+        g_core_ens = np.genfromtxt("mikkel_tools/models_shc/gnm_midpath.dat").T*10**9
+        g_core_ens = g_core_ens[:mt_util.shc_vec_len(self.N_SH),:]
+
+        g_cut = g_core_ens[:self.N_SH*(2+self.N_SH),200:] # Truncate g
+        R = mt_util.lowe_shspec(self.N_SH, r_at, self.a, g_cut)
+
+        # Angular distance matrix
+        c_angdist = np.cos(mt_util.haversine(1, self.grid_phi.reshape(1,-1), 90-self.grid_theta.reshape(1,-1), 
+                              self.grid_phi.reshape(-1,1), 90-self.grid_theta.reshape(-1,1)))
+
+        # Compute covariances based on Chris' note eqn. 11
+        C_const = (np.arange(1,n_tap+1)+1)/(2*np.arange(1,n_tap+1)+1)
         
+        # Generate matrix of all required Schmidt semi-normalized legendre polynomials
+        Pn = []
+        for cmu in np.ravel(c_angdist):
+            Pn.append(pyshtools.legendre.PlSchmidt(n_tap,cmu)[1:].reshape(-1,1))
+
+        Pn = np.array(Pn).reshape((c_angdist.shape[0],c_angdist.shape[1],-1))
+        
+        # Define taper with inverse powered exponential sum
+        lin_exp = np.linspace(tap_scale_start, tap_scale_end, tap_to)
+        tap_exp = (0.5*np.exp(-tap_exp_p1*lin_exp) + 0.5*np.exp(-tap_exp_p2*lin_exp)).reshape(-1,1)
+
+        # Take taper as factor on last spectra values and add to true prior spectra
+        R_add = R[-1,:]*tap_exp
+        R_tap = np.vstack((R,R_add[1:,:]))
+
+        # Determine covariance model according to eqn. 11
+        C_Br = Pn@(C_const.reshape(-1,1)*R_tap)
+        C_Br_model = np.mean(C_Br,axis=2)
+
+        # Positive definite covariance?
+        core_eigval = spl.eigh(C_Br_model, eigvals_only=True)
+        N_neg_eigval = len(core_eigval[core_eigval<=0])
+        print("All eigenvalues > 0:", np.all(core_eigval>=0))
+        print("Cov model is pos def:", mt_util.is_pos_def(C_Br_model))
+        if np.all(core_eigval>=0) == False:
+            print("Number of negative eigenvalues:",N_neg_eigval,"/",len(core_eigval))
+
+        # Save covariance model variable
+        self.C_ens_tap = C_Br_model
+
+        # Generate plot to show taper
+        if plot_taper == True:
+            lin_exp = np.linspace(tap_scale_start,tap_scale_end,10000)
+            lin_deg = np.linspace(1,tap_to,10000)
+            tap_exp = (0.5*np.exp(-tap_exp_p1*lin_exp) + 0.5*np.exp(-tap_exp_p2*lin_exp)).reshape(-1,1)
+            R_show = R[-1,:]*tap_exp
+
+            # Spectra
+            fig, axes = plt.subplots(1, 2, figsize=(10,4))
+            for i in np.arange(R_tap.shape[1]):
+                if i == 0:
+                    axes[0].plot(np.arange(1,n_tap+1),R_tap[:,i],color=(0.6,0.6,0.6),label="Tapered ensemble")
+                    axes[0].plot(lin_deg+29,R_show[:,self.ens_idx],zorder = 10, label ="Taper function for highlight")
+                    axes[0].plot(np.arange(1,n_tap+1)[:30],R_tap[:30,self.ens_idx],"o",zorder = 11, label = "Ensemble highlight truth")
+                    axes[0].plot(np.arange(1,n_tap+1)[30:],R_tap[30:,self.ens_idx],"o",zorder = 11, label = "Ensemble highlight taper")
+                    
+                    axes[1].plot(np.arange(1,n_tap+1),R_tap[:,i],color=(0.6,0.6,0.6),label="Tapered ensemble")
+                    axes[1].plot(lin_deg+29,R_show[:,self.ens_idx],zorder = 10, label ="Taper function for highlight")
+                    axes[1].plot(np.arange(1,n_tap+1)[:30],R_tap[:30,self.ens_idx],"o",zorder = 11, label = "Ensemble highlight truth")
+                    axes[1].plot(np.arange(1,n_tap+1)[30:],R_tap[30:,self.ens_idx],"o",zorder = 11, label = "Ensemble highlight taper")
+                else:
+                    axes[0].plot(np.arange(1,n_tap+1),R_tap[:,i],color=(0.6,0.6,0.6))
+                    axes[1].plot(np.arange(1,n_tap+1),R_tap[:,i],color=(0.6,0.6,0.6))
+
+            axes[0].set_xlim(25,40)
+            axes[0].set_ylim(0,1.5*10**10)
+            axes[1].set_xlim(0,200)
+            axes[1].set_ylim(0, 10**10)
+            axes[0].legend(fontsize="small")
+            axes[1].legend(fontsize="small")
+            axes[0].set_ylabel("Power [$nT^2$]")
+            axes[0].set_xlabel("SH degree, n")
+            axes[1].set_ylabel("Power [$nT^2$]")
+            axes[1].set_xlabel("SH degree, n")
+            fig.suptitle('Taper function: $f_t = 0.5e^{{-{}n}} + 0.5e^{{-{}n}}$'.format(tap_exp_p1, tap_exp_p2), fontsize=10)
+            plt.show()
+
 
     def sv_m_DSS(self,N,N_sim,m_DSS,sort_d,n_lags,max_cloud):
 
