@@ -3,7 +3,7 @@ import mikkel_tools.utility as mt_util
 import matplotlib.pyplot as plt
 import pyshtools
 import scipy.linalg as spl
-
+import pickle
 import numpy as np
 import mikkel_tools.GMT_tools as gt
 import os
@@ -870,7 +870,8 @@ class SDSS(MiClass):
 
 
     def cov_model_taper(self, r_at = None, tap_to = 500, tap_exp_p1 = 5, tap_exp_p2 = 2,
-                        tap_scale_start = 0, tap_scale_end = 24, plot_taper = False):
+                        tap_scale_start = 0, tap_scale_end = 24, plot_taper = False, 
+                        save_fig = False, save_string = "", save_dpi = 300):
 
         if r_at == None:
             r_at = self.a
@@ -957,6 +958,8 @@ class SDSS(MiClass):
             axes[1].set_ylabel("Power [$nT^2$]")
             axes[1].set_xlabel("SH degree, n")
             fig.suptitle('Taper function: $f_t = 0.5e^{{-{}n}} + 0.5e^{{-{}n}}$'.format(tap_exp_p1, tap_exp_p2), fontsize=10)
+            if save_fig == True:
+                fig.savefig('cov_taper_{}.pdf'.format(save_string), bbox_inches='tight', dpi = save_dpi)
             plt.show()
 
 
@@ -1592,4 +1595,22 @@ class SDSS(MiClass):
             # Save realizations after each step
             np.save("m_DSS_{}".format(nb_name), m_DSS)
     
-    
+
+    def pickle_save_self(self, nb_name):
+
+        del self.CQF_dist
+        del self.CQF_mean
+        del self.CQF_var
+        del self.G
+        del self.C_ens_tap
+        del self.C_mm_all
+        del self.C_dm_all
+        del self.C_dd
+        del self.m_core_ens
+
+        # SAVE RESULT
+        print("\nSaving job")
+        file_pickle = open("{}.obj".format(nb_name), "wb")
+        pickle.dump(self, file_pickle) #, pickle_protocol=4
+        file_pickle.close()
+        print("\nJob saved and finished")
