@@ -1596,21 +1596,22 @@ class SDSS(MiClass):
             np.save("m_DSS_{}".format(nb_name), m_DSS)
     
 
-    def pickle_save_self(self, nb_name):
+    def pickle_save_self(self, nb_name, name_append = ""):
 
         del self.CQF_dist
         del self.CQF_mean
         del self.CQF_var
         del self.G
-        del self.C_ens_tap
         del self.C_mm_all
         del self.C_dm_all
         del self.C_dd
-        del self.m_core_ens
+        if self.sim_type == "core_ens":
+            del self.C_ens_tap
+            del self.m_core_ens
 
         # SAVE RESULT
         print("\nSaving job")
-        file_pickle = open("{}.obj".format(nb_name), "wb")
+        file_pickle = open("{}{}.obj".format(nb_name, name_append), "wb")
         pickle.dump(self, file_pickle) #, pickle_protocol=4
         file_pickle.close()
         print("\nJob saved and finished")
