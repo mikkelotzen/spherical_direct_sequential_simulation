@@ -205,20 +205,35 @@ class SDSS(MiClass):
             Gauss_in = np.loadtxt('mikkel_tools/models_shc/Julien_Gauss_JFM_E-8_snap.dat')
 
         elif self.sim_type == "core_ens":
-            g_core_ens = np.genfromtxt("mikkel_tools/models_shc/gnm_midpath.dat").T*10**9
-            g_core_ens = g_core_ens[:mt_util.shc_vec_len(self.N_SH),:]
-            self.ensemble_B(g_core_ens, nmax = self.N_SH, r_at = self.r_cmb, grid_type = "glq")
-            self.m_core_ens = self.B_ensemble[:,0,:].copy()[:,200:]
+            g_ens = np.genfromtxt("mikkel_tools/models_shc/gnm_midpath.dat").T*10**9
+            g_ens = g_ens[:mt_util.shc_vec_len(self.N_SH),:]
+            self.ensemble_B(g_ens, nmax = self.N_SH, r_at = self.r_cmb, grid_type = "glq")
+            self.m_ens = self.B_ensemble[:,0,:].copy()[:,200:]
 
-            var_core_ens = np.var(self.m_core_ens,axis=0)
+            var_ens = np.var(self.m_ens, axis=0)
 
-            idx_close_to_var = np.argwhere(np.logical_and(var_core_ens>0.9995*np.mean(var_core_ens), var_core_ens<1.0005*np.mean(var_core_ens)))
+            idx_close_to_var = np.argwhere(np.logical_and(var_ens>0.9995*np.mean(var_ens), var_ens<1.0005*np.mean(var_ens)))
 
-            g = np.ravel(g_core_ens[:,idx_close_to_var[-1]])
+            g = np.ravel(g_ens[:,idx_close_to_var[-1]])
 
             N_SH_max = self.N_SH
             self.ens_idx = int(idx_close_to_var[-1])
-            #self.g_core_ens = g_core_ens
+            #self.g_ens = g_ens
+
+        elif self.sim_type == "lith_ens":
+            g_ens = np.load("mikkel_tools/models_shc/lithosphere_g_in_rotated.npy")
+            g_ens = g_ens[:mt_util.shc_vec_len(self.N_SH),::20]
+            self.ensemble_B(g_ens, nmax = self.N_SH, r_at = self.a, grid_type = "glq")
+            self.m_ens = self.B_ensemble[:,0,:].copy()
+
+            var_ens = np.var(self.m_ens, axis=0)
+
+            idx_close_to_var = np.argwhere(np.logical_and(var_ens>0.95*np.mean(var_ens), var_ens<1.05*np.mean(var_ens)))
+
+            g = np.ravel(g_ens[:,idx_close_to_var[-1]])
+
+            N_SH_max = self.N_SH
+            self.ens_idx = int(idx_close_to_var[-1])
 
         elif self.sim_type == "surface":
             Gauss_in = np.loadtxt('mikkel_tools/models_shc/Masterton_13470_total_it1_0.glm')
@@ -243,7 +258,7 @@ class SDSS(MiClass):
         else:
             Gauss_in = np.loadtxt(args[0], comments='%')
 
-        if np.logical_and(self.sim_type != "separation", self.sim_type != "core_ens"):
+        if np.logical_and.reduce((self.sim_type != "separation", self.sim_type != "core_ens", self.sim_type != "lith_ens")):
             # Compute Gauss coefficients as vector
             g = mt_util.gauss_vector(Gauss_in, self.N_SH, i_n = 2, i_m = 3)
             N_SH_max = self.N_SH
@@ -319,7 +334,7 @@ class SDSS(MiClass):
             self.g_prior = mt_util.gauss_vector_zeroth(C_index, set_nmax, i_n = 0, i_m = 1)
             self.g_cilm = C_cilm.copy()
         elif model_hist == "ensemble":
-            data_sorted = np.ravel(self.m_core_ens)
+            data_sorted = np.ravel(self.m_ens)
             data_sorted = data_sorted[0.5*np.max(np.abs(data_sorted))>np.abs(data_sorted)]
             #data_sorted = np.delete(data_sorted, np.abs(data_sorted)>np.max(np.abs(data_sorted))*0.5)
         else:
@@ -869,9 +884,62 @@ class SDSS(MiClass):
         self.C3 = C3
 
 
+    def cov_model(self, r_at = None, N_cut = 200):
+
+        if r_at == None:
+            r_at = self.a
+
+        #tap_to = tap_to + 1 # One extra for overlap between R_add and R
+        #n_tap = self.N_SH + tap_to - 1 # And one less in the sum as a result
+
+        # g ensemble and parameters
+        if self.sim_type == "core_ens":
+            g_ens = np.genfromtxt("mikkel_tools/models_shc/gnm_midpath.dat").T*10**9
+        elif self.sim_type == "lith_ens":
+            g_ens = np.load("mikkel_tools/models_shc/lithosphere_g_in_rotated.npy")
+
+        g_ens = g_ens[:mt_util.shc_vec_len(self.N_SH),:]
+
+        if self.sim_type == "core_ens":
+            g_cut = g_ens[:self.N_SH*(2+self.N_SH),N_cut:] # Truncate g
+        elif self.sim_type == "lith_ens":
+            g_cut = g_ens[:self.N_SH*(2+self.N_SH),::20]
+
+        R = mt_util.lowe_shspec(self.N_SH, r_at, self.a, g_cut)
+
+        # Angular distance matrix
+        c_angdist = np.cos(mt_util.haversine(1, self.grid_phi.reshape(1,-1), 90-self.grid_theta.reshape(1,-1), 
+                              self.grid_phi.reshape(-1,1), 90-self.grid_theta.reshape(-1,1)))
+
+        # Compute covariances based on Chris' note eqn. 11
+        C_const = (np.arange(1,self.N_SH+1)+1)/(2*np.arange(1,self.N_SH+1)+1)
+        
+        # Generate matrix of all required Schmidt semi-normalized legendre polynomials
+        Pn = []
+        for cmu in np.ravel(c_angdist):
+            Pn.append(pyshtools.legendre.PlSchmidt(self.N_SH,cmu)[1:].reshape(-1,1))
+
+        Pn = np.array(Pn).reshape((c_angdist.shape[0],c_angdist.shape[1],-1))
+
+        # Determine covariance model according to eqn. 11
+        C_Br = Pn@(C_const.reshape(-1,1)*R)
+        C_Br_model = np.mean(C_Br,axis=2)
+
+        # Positive definite covariance?
+        core_eigval = spl.eigh(C_Br_model, eigvals_only=True)
+        N_neg_eigval = len(core_eigval[core_eigval<=0])
+        print("All eigenvalues > 0:", np.all(core_eigval>=0))
+        print("Cov model is pos def:", mt_util.is_pos_def(C_Br_model))
+        if np.all(core_eigval>=0) == False:
+            print("Number of negative eigenvalues:",N_neg_eigval,"/",len(core_eigval))
+
+        # Save covariance model variable
+        self.C_ens = C_Br_model
+
+
     def cov_model_taper(self, r_at = None, tap_to = 500, tap_exp_p1 = 5, tap_exp_p2 = 2,
                         tap_scale_start = 0, tap_scale_end = 24, plot_taper = False, 
-                        save_fig = False, save_string = "", save_dpi = 300):
+                        save_fig = False, save_string = "", save_dpi = 300, N_cut = 200):
 
         if r_at == None:
             r_at = self.a
@@ -880,10 +948,18 @@ class SDSS(MiClass):
         n_tap = self.N_SH + tap_to - 1 # And one less in the sum as a result
 
         # g ensemble and parameters
-        g_core_ens = np.genfromtxt("mikkel_tools/models_shc/gnm_midpath.dat").T*10**9
-        g_core_ens = g_core_ens[:mt_util.shc_vec_len(self.N_SH),:]
+        if self.sim_type == "core_ens":
+            g_ens = np.genfromtxt("mikkel_tools/models_shc/gnm_midpath.dat").T*10**9
+        elif self.sim_type == "lith_ens":
+            g_ens = np.load("mikkel_tools/models_shc/lithosphere_g_in_rotated.npy")
 
-        g_cut = g_core_ens[:self.N_SH*(2+self.N_SH),200:] # Truncate g
+        g_ens = g_ens[:mt_util.shc_vec_len(self.N_SH),:]
+
+        if self.sim_type == "core_ens":
+            g_cut = g_ens[:self.N_SH*(2+self.N_SH),N_cut:] # Truncate g
+        elif self.sim_type == "lith_ens":
+            g_cut = g_ens[:self.N_SH*(2+self.N_SH),::20]
+
         R = mt_util.lowe_shspec(self.N_SH, r_at, self.a, g_cut)
 
         # Angular distance matrix
@@ -935,22 +1011,25 @@ class SDSS(MiClass):
             for i in np.arange(R_tap.shape[1]):
                 if i == 0:
                     axes[0].plot(np.arange(1,n_tap+1),R_tap[:,i],color=(0.6,0.6,0.6),label="Tapered ensemble")
-                    axes[0].plot(lin_deg+29,R_show[:,self.ens_idx],zorder = 10, label ="Taper function for highlight")
-                    axes[0].plot(np.arange(1,n_tap+1)[:30],R_tap[:30,self.ens_idx],"o",zorder = 11, label = "Ensemble highlight truth")
-                    axes[0].plot(np.arange(1,n_tap+1)[30:],R_tap[30:,self.ens_idx],"o",zorder = 11, label = "Ensemble highlight taper")
+                    axes[0].plot(lin_deg+self.N_SH-1,R_show[:,self.ens_idx],zorder = 10, label ="Taper function for highlight")
+                    axes[0].plot(np.arange(1,n_tap+1)[:self.N_SH],R_tap[:self.N_SH,self.ens_idx],"o",zorder = 11, label = "Ensemble highlight truth")
+                    axes[0].plot(np.arange(1,n_tap+1)[self.N_SH:],R_tap[self.N_SH:,self.ens_idx],"o",zorder = 11, label = "Ensemble highlight taper")
                     
                     axes[1].plot(np.arange(1,n_tap+1),R_tap[:,i],color=(0.6,0.6,0.6),label="Tapered ensemble")
                     axes[1].plot(lin_deg+29,R_show[:,self.ens_idx],zorder = 10, label ="Taper function for highlight")
-                    axes[1].plot(np.arange(1,n_tap+1)[:30],R_tap[:30,self.ens_idx],"o",zorder = 11, label = "Ensemble highlight truth")
-                    axes[1].plot(np.arange(1,n_tap+1)[30:],R_tap[30:,self.ens_idx],"o",zorder = 11, label = "Ensemble highlight taper")
+                    axes[1].plot(np.arange(1,n_tap+1)[:self.N_SH],R_tap[:self.N_SH,self.ens_idx],"o",zorder = 11, label = "Ensemble highlight truth")
+                    axes[1].plot(np.arange(1,n_tap+1)[self.N_SH:],R_tap[self.N_SH:,self.ens_idx],"o",zorder = 11, label = "Ensemble highlight taper")
                 else:
                     axes[0].plot(np.arange(1,n_tap+1),R_tap[:,i],color=(0.6,0.6,0.6))
                     axes[1].plot(np.arange(1,n_tap+1),R_tap[:,i],color=(0.6,0.6,0.6))
 
-            axes[0].set_xlim(25,40)
-            axes[0].set_ylim(0,1.5*10**10)
-            axes[1].set_xlim(0,200)
-            axes[1].set_ylim(0, 10**10)
+            
+            axes[0].set_xlim(self.N_SH-5,self.N_SH+10)
+            #axes[0].set_ylim(0,1.5*10**10)
+            axes[0].set_ylim(0,1.2*np.max(R_tap[self.N_SH,:]))
+            axes[1].set_xlim(0,tap_to/2)
+            #axes[1].set_ylim(0, 10**10)
+            axes[1].set_ylim(0, np.max(R_tap[self.N_SH,:]))
             axes[0].legend(fontsize="small")
             axes[1].legend(fontsize="small")
             axes[0].set_ylabel("Power [$nT^2$]")
@@ -1605,9 +1684,9 @@ class SDSS(MiClass):
         del self.C_mm_all
         del self.C_dm_all
         del self.C_dd
-        if self.sim_type == "core_ens":
+        if np.logical_or(self.sim_type == "core_ens",self.sim_type == "lith_ens"):
             del self.C_ens_tap
-            del self.m_core_ens
+            del self.m_ens
 
         # SAVE RESULT
         print("\nSaving job")
