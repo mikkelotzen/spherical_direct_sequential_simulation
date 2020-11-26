@@ -222,7 +222,11 @@ class SDSS(MiClass):
 
         elif self.sim_type == "lith_ens":
             g_ens = np.load("mikkel_tools/models_shc/lithosphere_g_in_rotated.npy")
-            g_ens = g_ens[:mt_util.shc_vec_len(self.N_SH),::20]
+            self.lith_ens_cut = 100
+            g_ens = g_ens[:mt_util.shc_vec_len(self.N_SH),::self.lith_ens_cut]
+            R = mt_util.lowe_shspec(self.N_SH, self.a, self.a, g_ens)
+            g_ens = g_ens[:,np.mean(R,axis=0)>5]
+
             self.ensemble_B(g_ens, nmax = self.N_SH, r_at = self.a, grid_type = "glq")
             self.m_ens = self.B_ensemble[:,0,:].copy()
 
@@ -903,27 +907,40 @@ class SDSS(MiClass):
         if self.sim_type == "core_ens":
             g_cut = g_ens[:self.N_SH*(2+self.N_SH),N_cut:] # Truncate g
         elif self.sim_type == "lith_ens":
-            g_cut = g_ens[:self.N_SH*(2+self.N_SH),::20]
+            g_cut = g_ens[:self.N_SH*(2+self.N_SH),::self.lith_ens_cut]
 
         R = mt_util.lowe_shspec(self.N_SH, r_at, self.a, g_cut)
+        R = R[:,np.mean(R,axis=0)>5]
 
         # Angular distance matrix
         c_angdist = np.cos(mt_util.haversine(1, self.grid_phi.reshape(1,-1), 90-self.grid_theta.reshape(1,-1), 
                               self.grid_phi.reshape(-1,1), 90-self.grid_theta.reshape(-1,1)))
+        c_unique, c_return = np.unique(np.ravel(c_angdist), return_inverse = True)
 
-        # Compute covariances based on Chris' note eqn. 11
+        # Compute constants based on Chris' note eqn. 11
         C_const = (np.arange(1,self.N_SH+1)+1)/(2*np.arange(1,self.N_SH+1)+1)
         
+        # Constant and R
+        CR = C_const.reshape(-1,1)*R
+
         # Generate matrix of all required Schmidt semi-normalized legendre polynomials
         Pn = []
-        for cmu in np.ravel(c_angdist):
-            Pn.append(pyshtools.legendre.PlSchmidt(self.N_SH,cmu)[1:].reshape(-1,1))
+        for cmu in c_unique:
+            Pn.append(pyshtools.legendre.PlSchmidt(self.N_SH,cmu)[1:].reshape(-1,))
+        Pn = np.array(Pn)[:,:]
 
-        Pn = np.array(Pn).reshape((c_angdist.shape[0],c_angdist.shape[1],-1))
+        #Pn = np.array(Pn).reshape((c_angdist.shape[0],c_angdist.shape[1],-1))
 
         # Determine covariance model according to eqn. 11
-        C_Br = Pn@(C_const.reshape(-1,1)*R)
-        C_Br_model = np.mean(C_Br,axis=2)
+        C_Br_model = np.mean(Pn@CR,axis=1)[c_return].reshape((c_angdist.shape[0],c_angdist.shape[1]))
+        #if c_angdist.shape[0] <= 2000:
+        #    C_Br = Pn@CR
+        #    C_Br_model = np.mean(C_Br,axis=2)
+        #else:
+        #    C_Br = np.zeros((self.grid_N, self.grid_N, 1))
+        #    for i in np.arange(0,R.shape[1]):
+        #        C_Br += Pn@CR[:,[i]]
+        #    C_Br_model = C_Br[:,:,0]/R.shape[1]
 
         # Positive definite covariance?
         core_eigval = spl.eigh(C_Br_model, eigvals_only=True)
@@ -958,23 +975,26 @@ class SDSS(MiClass):
         if self.sim_type == "core_ens":
             g_cut = g_ens[:self.N_SH*(2+self.N_SH),N_cut:] # Truncate g
         elif self.sim_type == "lith_ens":
-            g_cut = g_ens[:self.N_SH*(2+self.N_SH),::20]
+            g_cut = g_ens[:self.N_SH*(2+self.N_SH),::self.lith_ens_cut]
 
         R = mt_util.lowe_shspec(self.N_SH, r_at, self.a, g_cut)
+        R = R[:,np.mean(R,axis=0)>5]
 
         # Angular distance matrix
         c_angdist = np.cos(mt_util.haversine(1, self.grid_phi.reshape(1,-1), 90-self.grid_theta.reshape(1,-1), 
                               self.grid_phi.reshape(-1,1), 90-self.grid_theta.reshape(-1,1)))
+        c_unique, c_return = np.unique(np.ravel(c_angdist), return_inverse = True)
 
         # Compute covariances based on Chris' note eqn. 11
         C_const = (np.arange(1,n_tap+1)+1)/(2*np.arange(1,n_tap+1)+1)
         
         # Generate matrix of all required Schmidt semi-normalized legendre polynomials
         Pn = []
-        for cmu in np.ravel(c_angdist):
-            Pn.append(pyshtools.legendre.PlSchmidt(n_tap,cmu)[1:].reshape(-1,1))
+        for cmu in c_unique:
+            Pn.append(pyshtools.legendre.PlSchmidt(n_tap,cmu)[1:].reshape(-1,))
+        Pn = np.array(Pn)[:,:]
 
-        Pn = np.array(Pn).reshape((c_angdist.shape[0],c_angdist.shape[1],-1))
+        #Pn = np.array(Pn).reshape((c_angdist.shape[0],c_angdist.shape[1],-1))
         
         # Define taper with inverse powered exponential sum
         lin_exp = np.linspace(tap_scale_start, tap_scale_end, tap_to)
@@ -984,9 +1004,19 @@ class SDSS(MiClass):
         R_add = R[-1,:]*tap_exp
         R_tap = np.vstack((R,R_add[1:,:]))
 
+        # Constant and R
+        CR = C_const.reshape(-1,1)*R_tap
+
         # Determine covariance model according to eqn. 11
-        C_Br = Pn@(C_const.reshape(-1,1)*R_tap)
-        C_Br_model = np.mean(C_Br,axis=2)
+        C_Br_model = np.mean(Pn@CR,axis=1)[c_return].reshape((c_angdist.shape[0],c_angdist.shape[1]))
+        #if c_angdist.shape[0] <= 2000:
+        #    C_Br = Pn@CR
+        #    C_Br_model = np.mean(C_Br,axis=2)
+        #else:
+        #    C_Br = np.zeros((self.grid_N, self.grid_N, 1))
+        #    for i in np.arange(0,R.shape[1]):
+        #        C_Br += Pn@CR[:,[i]]
+        #    C_Br_model = C_Br[:,:,0]/R.shape[1]
 
         # Positive definite covariance?
         core_eigval = spl.eigh(C_Br_model, eigvals_only=True)
@@ -1016,7 +1046,7 @@ class SDSS(MiClass):
                     axes[0].plot(np.arange(1,n_tap+1)[self.N_SH:],R_tap[self.N_SH:,self.ens_idx],"o",zorder = 11, label = "Ensemble highlight taper")
                     
                     axes[1].plot(np.arange(1,n_tap+1),R_tap[:,i],color=(0.6,0.6,0.6),label="Tapered ensemble")
-                    axes[1].plot(lin_deg+29,R_show[:,self.ens_idx],zorder = 10, label ="Taper function for highlight")
+                    axes[1].plot(lin_deg+self.N_SH-1,R_show[:,self.ens_idx],zorder = 10, label ="Taper function for highlight")
                     axes[1].plot(np.arange(1,n_tap+1)[:self.N_SH],R_tap[:self.N_SH,self.ens_idx],"o",zorder = 11, label = "Ensemble highlight truth")
                     axes[1].plot(np.arange(1,n_tap+1)[self.N_SH:],R_tap[self.N_SH:,self.ens_idx],"o",zorder = 11, label = "Ensemble highlight taper")
                 else:
