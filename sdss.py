@@ -1236,7 +1236,7 @@ class SDSS(MiClass):
 
     def run_sim(self, N_sim, N_m, C_mm_all, C_dd, C_dm_all, G, observations, training_image,
                 collect_all = False, scale_m_i = True, unit_d = False, sense_running_error = False, save_string = "test", solve_cho = True,
-                sim_stochastic = False):
+                sim_stochastic = False, separation = False, separation_lim = None, separation_obj_1 = None, separation_obj_2 = None):
                 
         import time
         import random
@@ -1269,8 +1269,7 @@ class SDSS(MiClass):
         kriging_weights_rel_dat = list()
         v_cond_vars = list()
         lstsq_param = list()
-
-        #prior_data = np.hstack((core.data,lithos.data))
+        C_dd_in = C_dd
 
         """ Run sequential simulations"""    
         for realization in range(0,N_sim):
@@ -1294,7 +1293,6 @@ class SDSS(MiClass):
             data_max = np.max(training_image)
             dm = data_max - data_min
             dv = self.target_var
-
             stepped_previously = np.empty([0,],dtype=int)
             
             err_mag_sum = 0.0
@@ -1302,7 +1300,8 @@ class SDSS(MiClass):
             
             # Start random walk
             for step in step_rnd_path:
-                
+
+                C_mm_var = C_mm_all[step,step]
                 C_mm = np.empty([0,],dtype=np.longdouble)
                 C_dm = np.empty([0,],dtype=np.longdouble)
                 C_vm = np.empty([0,],dtype=np.longdouble)
@@ -1316,7 +1315,6 @@ class SDSS(MiClass):
                 idx_n = np.empty([0,],dtype=int)
                 idx_v = np.empty([0,],dtype=int)
                 m_i = np.empty([0,],dtype=np.longdouble)
-                #m_k = np.empty([0,],dtype=np.longdouble)
                 m_k = None
                 
                 err_mag_avg = np.empty([0,],dtype=np.longdouble)
@@ -1327,7 +1325,13 @@ class SDSS(MiClass):
                 #""" SORT METHOD """
 
                 #cov_walked = C_mm_all[step,stepped_previously]
-                
+                if np.logical_and(separation == True, step <= separation_lim):
+                    sep_idx = 0
+                    C_dd_in = C_dd[sep_idx]
+                else:
+                    sep_idx = 1
+                    C_dd_in = C_dd[sep_idx]
+
                 """COV SETUP"""
 
                 # Set up m to m
@@ -1342,18 +1346,17 @@ class SDSS(MiClass):
                     c_dm = C_dm_all[step,:].reshape(-1,1)
 
                     if len(stepped_previously) >= 1:
-                        #C_dm = np.matmul(G,C_mm_all[:,stepped_previously]).T
                         C_dm = C_dm_all[stepped_previously,:]
 
                     c_vm = np.vstack((c_mm,c_dm))
                     
-                    C_vm = np.zeros((len(C_dd)+len(C_mm),len(C_dd)+len(C_mm)))
-                    C_vm[-len(C_dd):,-len(C_dd):] = C_dd
+                    C_vm = np.zeros((len(C_dd_in)+len(C_mm),len(C_dd_in)+len(C_mm)))
+                    C_vm[-len(C_dd_in):,-len(C_dd_in):] = C_dd_in
                     
                     if len(stepped_previously) >= 1:    
                         C_vm[:len(C_mm),:len(C_mm)] = C_mm
-                        C_vm[:len(C_mm),-len(C_dd):] = C_dm
-                        C_vm[-len(C_dd):,:len(C_mm)] = C_dm.T
+                        C_vm[:len(C_mm),-len(C_dd_in):] = C_dm
+                        C_vm[-len(C_dd_in):,:len(C_mm)] = C_dm.T
 
                     v_cond_var = m_DSS[stepped_previously,realization].reshape(-1,1)
                     
@@ -1371,7 +1374,7 @@ class SDSS(MiClass):
 
                 if m_k == None:
                     """SIMPLE KRIGING (SK)"""
-                    
+                    #self.C_vm = C_vm
                     if solve_cho == True:
                         cho_lower = sp.linalg.cho_factor(C_vm)
                         kriging_weights = sp.linalg.cho_solve(cho_lower,c_vm)
@@ -1380,7 +1383,8 @@ class SDSS(MiClass):
                     
                     #kriging_weights[kriging_weights<0.01] = 0.0
 
-                    sigma_sq_k = self.target_var - np.float(kriging_weights.reshape(1,-1)@c_vm)
+                    #sigma_sq_k = self.target_var - np.float(kriging_weights.reshape(1,-1)@c_vm)
+                    sigma_sq_k = C_mm_var - np.float(kriging_weights.reshape(1,-1)@c_vm)
                     #sigma_sq_k = max_cov - np.float(kriging_weights.reshape(1,-1)@c_vm)
 
                     if sigma_sq_k < 0.0:
@@ -1388,17 +1392,36 @@ class SDSS(MiClass):
                         print("Negative kriging variance: %s" %sigma_sq_k)
                         print("")
                         kriging_weights[kriging_weights<0] = 0
-                        sigma_sq_k = self.target_var - np.float(kriging_weights.reshape(1,-1)@c_vm)
+                        #sigma_sq_k = self.target_var - np.float(kriging_weights.reshape(1,-1)@c_vm)
+                        sigma_sq_k = C_mm_var - np.float(kriging_weights.reshape(1,-1)@c_vm)
                         #sigma_sq_k = max_cov - np.float(kriging_weights.reshape(1,-1)@c_vm)
                     
                     mu_k = np.float(np.array(kriging_weights.reshape(1,-1)@(v_cond_var - self.target_mean) + self.target_mean))
                     
                     if collect_all == True:
-                        m_k, idx_nv = self.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = True)
+                        if separation == True:
+                            dv = C_mm_var
+                            if sep_idx == 0:
+                                dm = np.max(training_image[:separation_lim]) - np.min(training_image[:separation_lim])
+                                m_k, idx_nv = separation_obj_1.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = True)
+                            else:
+                                dm = np.max(training_image[separation_lim:]) - np.min(training_image[separation_lim:])
+                                m_k, idx_nv = separation_obj_2.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = True)
+                        else:
+                            m_k, idx_nv = self.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = True)
                         self.idx_nv_collect.append(idx_nv)
                         self.kriging_mv_collect.append((mu_k, sigma_sq_k))
                     else:
-                        m_k = self.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = False)
+                        if separation == True:
+                            dv = C_mm_var
+                            if sep_idx == 0:
+                                dm = np.max(training_image[:separation_lim]) - np.min(training_image[:separation_lim])
+                                m_k = separation_obj_1.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = False)
+                            else:
+                                dm = np.max(training_image[separation_lim:]) - np.min(training_image[separation_lim:])
+                                m_k = separation_obj_2.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = False)
+                        else:
+                            m_k = self.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = False)
 
                 m_DSS[step,realization] = m_k
                 
@@ -1445,11 +1468,12 @@ class SDSS(MiClass):
 
         self.m_DSS = m_DSS
 
-        self.m_DSS_pred = self.G@self.m_DSS
+        self.m_DSS_pred = G@self.m_DSS
         self.m_DSS_res = observations.reshape(-1,1) - self.m_DSS_pred
 
         m_DSS_mean = np.mean(self.m_DSS,axis=-1).reshape(-1,1)@np.ones((1,N_sim))
-        self.C_DSS = 1/(N_sim-1)*(self.m_DSS-m_DSS_mean)@(self.m_DSS-m_DSS_mean).T
+        if N_sim > 1:
+            self.C_DSS = 1/(N_sim-1)*(self.m_DSS-m_DSS_mean)@(self.m_DSS-m_DSS_mean).T
 
         rmse_leg = np.sqrt(np.mean(np.power(self.m_DSS_res,2),axis=0))
         print("")
@@ -1482,25 +1506,12 @@ class SDSS(MiClass):
         for i in np.arange(0,self.N_sim):
             
             C_vec, _ = mt_util.sh_expand_glq(self.m_DSS[:,[i]], self.grid_nmax, self.grid_w_shtools, self.grid_zero, set_nmax, set_norm = set_norm, geomag_scale = geomag_scale, geomag_r_at = r_at)
-
-            #C_cilm = pyshtools.expand.SHExpandGLQ(self.m_DSS[:,[i]].reshape(self.grid_nmax+1,2*self.grid_nmax+1), self.grid_w_shtools, self.grid_zero, [2, 1, set_nmax])
-
-            #C_index = np.transpose(pyshtools.shio.SHCilmToCindex(C_cilm))
-
-            #if geomag_scale == True:
-            #    nm_C = mt_util.array_nm(set_nmax)
-            #    C_corr_sh = 1/(nm_C[:,[0]]+1)*1/(self.a/r_at)**(nm_C[:,[0]]+2)
-            #    C_index = C_index[1:,:]*C_corr_sh
-
-            #    C_vec = mt_util.gauss_vector(C_index, set_nmax, i_n = 0, i_m = 1)
-            #else:
-            #    C_index = C_index[1:,:]
-            #    C_vec = mt_util.gauss_vector_zeroth(C_index, set_nmax, i_n = 0, i_m = 1)
             
             self.g_spec.append(C_vec)
 
         self.g_spec = np.array(self.g_spec).T
         self.g_spec_mean = np.mean(self.g_spec,axis=1)
+
 
     def run_sim_sep(self, N_sim):
         import time
