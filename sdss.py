@@ -1325,12 +1325,13 @@ class SDSS(MiClass):
                 #""" SORT METHOD """
 
                 #cov_walked = C_mm_all[step,stepped_previously]
-                if np.logical_and(separation == True, step <= separation_lim):
-                    sep_idx = 0
-                    C_dd_in = C_dd[sep_idx]
-                else:
-                    sep_idx = 1
-                    C_dd_in = C_dd[sep_idx]
+                if separation == True:
+                    if step <= separation_lim:
+                        sep_idx = 0
+                        C_dd_in = C_dd[sep_idx]
+                    else:
+                        sep_idx = 1
+                        C_dd_in = C_dd[sep_idx]
 
                 """COV SETUP"""
 
