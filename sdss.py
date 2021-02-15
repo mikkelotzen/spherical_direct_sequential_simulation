@@ -221,11 +221,13 @@ class SDSS(MiClass):
             #self.g_ens = g_ens
 
         elif self.sim_type == "lith_ens":
-            g_ens = np.load("mikkel_tools/models_shc/lithosphere_g_in_rotated.npy")
-            self.lith_ens_cut = 100
-            g_ens = g_ens[:mt_util.shc_vec_len(self.N_SH),::self.lith_ens_cut]
-            R = mt_util.lowe_shspec(self.N_SH, self.a, self.a, g_ens)
-            g_ens = g_ens[:,np.mean(R,axis=0)>5]
+            #g_ens = np.load("mikkel_tools/models_shc/lithosphere_g_in_rotated.npy")
+            g_ens = np.load("mikkel_tools/models_shc/LiP_ensemble_N500_n120_p05_vary_crust.npy")
+            #self.lith_ens_cut = 100
+            #g_ens = g_ens[:mt_util.shc_vec_len(self.N_SH),::self.lith_ens_cut]
+            g_ens = g_ens[:mt_util.shc_vec_len(self.N_SH),:]
+            #R = mt_util.lowe_shspec(self.N_SH, self.a, self.a, g_ens)
+            #g_ens = g_ens[:,np.mean(R,axis=0)>5]
 
             self.ensemble_B(g_ens, nmax = self.N_SH, r_at = self.a, grid_type = "glq")
             self.m_ens = self.B_ensemble[:,0,:].copy()
@@ -900,14 +902,16 @@ class SDSS(MiClass):
         if self.sim_type == "core_ens":
             g_ens = np.genfromtxt("mikkel_tools/models_shc/gnm_midpath.dat").T*10**9
         elif self.sim_type == "lith_ens":
-            g_ens = np.load("mikkel_tools/models_shc/lithosphere_g_in_rotated.npy")
+            #g_ens = np.load("mikkel_tools/models_shc/lithosphere_g_in_rotated.npy")
+            g_ens = np.load("mikkel_tools/models_shc/LiP_ensemble_N500_n120_p05_vary_crust.npy")
 
         g_ens = g_ens[:mt_util.shc_vec_len(self.N_SH),:]
 
         if self.sim_type == "core_ens":
             g_cut = g_ens[:self.N_SH*(2+self.N_SH),N_cut:] # Truncate g
         elif self.sim_type == "lith_ens":
-            g_cut = g_ens[:self.N_SH*(2+self.N_SH),::self.lith_ens_cut]
+            #g_cut = g_ens[:self.N_SH*(2+self.N_SH),::self.lith_ens_cut]
+            g_cut = g_ens[:self.N_SH*(2+self.N_SH),:]
 
         R = mt_util.lowe_shspec(self.N_SH, r_at, self.a, g_cut)
         R = R[:,np.mean(R,axis=0)>5]
@@ -968,14 +972,16 @@ class SDSS(MiClass):
         if self.sim_type == "core_ens":
             g_ens = np.genfromtxt("mikkel_tools/models_shc/gnm_midpath.dat").T*10**9
         elif self.sim_type == "lith_ens":
-            g_ens = np.load("mikkel_tools/models_shc/lithosphere_g_in_rotated.npy")
+            #g_ens = np.load("mikkel_tools/models_shc/lithosphere_g_in_rotated.npy")
+            g_ens = np.load("mikkel_tools/models_shc/LiP_ensemble_N500_n120_p05_vary_crust.npy")
 
         g_ens = g_ens[:mt_util.shc_vec_len(self.N_SH),:]
 
         if self.sim_type == "core_ens":
             g_cut = g_ens[:self.N_SH*(2+self.N_SH),N_cut:] # Truncate g
         elif self.sim_type == "lith_ens":
-            g_cut = g_ens[:self.N_SH*(2+self.N_SH),::self.lith_ens_cut]
+            #g_cut = g_ens[:self.N_SH*(2+self.N_SH),::self.lith_ens_cut]
+            g_cut = g_ens[:self.N_SH*(2+self.N_SH),:]
 
         R = mt_util.lowe_shspec(self.N_SH, r_at, self.a, g_cut)
         R = R[:,np.mean(R,axis=0)>5]
