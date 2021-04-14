@@ -1240,7 +1240,7 @@ class SDSS(MiClass):
             return m_k
 
 
-    def run_sim(self, N_sim, N_m, C_mm_all, C_dd, C_dm_all, G, observations, training_image,
+    def run_sim(self, N_sim, N_m, C_mm_all, C_dd, C_dm_all, G, observations, training_image, observations_direct = False, use_sgs = False,
                 collect_all = False, scale_m_i = True, unit_d = False, sense_running_error = False, save_string = "test", solve_cho = True,
                 sim_stochastic = False, separation = False, separation_lim = None, separation_obj_1 = None, separation_obj_2 = None):
                 
@@ -1405,30 +1405,33 @@ class SDSS(MiClass):
                     
                     mu_k = np.float(np.array(kriging_weights.reshape(1,-1)@(v_cond_var - self.target_mean) + self.target_mean))
                     
-                    if collect_all == True:
-                        if separation == True:
-                            dv = C_mm_var
-                            if sep_idx == 0:
-                                dm = np.max(training_image[:separation_lim]) - np.min(training_image[:separation_lim])
-                                m_k, idx_nv = separation_obj_1.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = True)
+                    if use_sgs == False:
+                        if collect_all == True:
+                            if separation == True:
+                                dv = C_mm_var
+                                if sep_idx == 0:
+                                    dm = np.max(training_image[:separation_lim]) - np.min(training_image[:separation_lim])
+                                    m_k, idx_nv = separation_obj_1.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = True)
+                                else:
+                                    dm = np.max(training_image[separation_lim:]) - np.min(training_image[separation_lim:])
+                                    m_k, idx_nv = separation_obj_2.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = True)
                             else:
-                                dm = np.max(training_image[separation_lim:]) - np.min(training_image[separation_lim:])
-                                m_k, idx_nv = separation_obj_2.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = True)
+                                m_k, idx_nv = self.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = True)
+                            self.idx_nv_collect.append(idx_nv)
+                            self.kriging_mv_collect.append((mu_k, sigma_sq_k))
                         else:
-                            m_k, idx_nv = self.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = True)
-                        self.idx_nv_collect.append(idx_nv)
-                        self.kriging_mv_collect.append((mu_k, sigma_sq_k))
+                            if separation == True:
+                                dv = C_mm_var
+                                if sep_idx == 0:
+                                    dm = np.max(training_image[:separation_lim]) - np.min(training_image[:separation_lim])
+                                    m_k = separation_obj_1.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = False)
+                                else:
+                                    dm = np.max(training_image[separation_lim:]) - np.min(training_image[separation_lim:])
+                                    m_k = separation_obj_2.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = False)
+                            else:
+                                m_k = self.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = False)
                     else:
-                        if separation == True:
-                            dv = C_mm_var
-                            if sep_idx == 0:
-                                dm = np.max(training_image[:separation_lim]) - np.min(training_image[:separation_lim])
-                                m_k = separation_obj_1.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = False)
-                            else:
-                                dm = np.max(training_image[separation_lim:]) - np.min(training_image[separation_lim:])
-                                m_k = separation_obj_2.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = False)
-                        else:
-                            m_k = self.conditional_lookup(mu_k, sigma_sq_k, dm, dv, scaling = scale_m_i, unit_d = unit_d, return_idx = False)
+                        m_k = mu_k
 
                 m_DSS[step,realization] = m_k
                 
