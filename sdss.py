@@ -1240,9 +1240,11 @@ class SDSS(MiClass):
             return m_k
 
 
-    def run_sim(self, N_sim, N_m, C_mm_all, C_dd, C_dm_all, G, observations, training_image, observations_direct = False, use_sgs = False,
-                collect_all = False, scale_m_i = True, unit_d = False, sense_running_error = False, save_string = "test", solve_cho = True,
-                sim_stochastic = False, separation = False, separation_lim = None, separation_obj_1 = None, separation_obj_2 = None):
+    def run_sim(self, N_sim, N_m, C_mm_all, C_dd, C_dm_all, G, observations, training_image, 
+                observations_direct = None, observations_direct_loc = None, observations_direct_e = None, use_sgs = False,
+                collect_all = False, scale_m_i = True, unit_d = False, sense_running_error = False, save_string = "test", 
+                solve_cho = True, sim_stochastic = False, separation = False, separation_lim = None, separation_obj_1 = None, 
+                separation_obj_2 = None):
                 
         import time
         import random
@@ -1259,6 +1261,8 @@ class SDSS(MiClass):
         """
         
         max_cov = np.max(C_mm_all)
+        #if observations_direct_e is not None:
+        #    C_mm_all[np.arange(self.grid_N),np.arange(self.grid_N)] += observations_direct_e
 
         """Number of simulations"""
         self.N_sim = N_sim
@@ -1303,10 +1307,10 @@ class SDSS(MiClass):
             
             err_mag_sum = 0.0
             len_stepped = 0
-            
+
             # Start random walk
             for step in step_rnd_path:
-
+                
                 C_mm_var = C_mm_all[step,step]
                 C_mm = np.empty([0,],dtype=np.longdouble)
                 C_dm = np.empty([0,],dtype=np.longdouble)
@@ -1348,8 +1352,35 @@ class SDSS(MiClass):
                 C_mm = (np.ravel(C_mm_all)[(stepped_previously + (stepped_previously * C_mm_all.shape[1]).reshape((-1,1))).ravel()]).reshape(stepped_previously.size, stepped_previously.size)
             
                 
-                # Set up d to m
-                if sim_stochastic == False:
+                # Set up d to m, direct observations etc.
+                if observations_direct is not None:
+                    if len_stepped == 0:
+                        for step_direct in observations_direct_loc:
+                            stepped_previously = np.append(stepped_previously, step_direct)
+                            len_stepped += 1 
+                        m_DSS[stepped_previously,realization] = observations_direct
+                        # Set up m to m
+                        c_mm = C_mm_all[step,stepped_previously].reshape(-1,1)
+                        # Lookup all closest location semi-variances to each other (efficiently)
+                        C_mm = (np.ravel(C_mm_all)[(stepped_previously + (stepped_previously * C_mm_all.shape[1]).reshape((-1,1))).ravel()]).reshape(stepped_previously.size, stepped_previously.size)
+                        
+                    if observations is not None:
+                        c_dm = C_dm_all[step,:].reshape(-1,1)
+                        C_dm = C_dm_all[stepped_previously,:]
+                        c_vm = np.vstack((c_mm,c_dm))
+                        C_vm = np.zeros((len(C_dd_in)+len(C_mm),len(C_dd_in)+len(C_mm)))
+                        C_vm[-len(C_dd_in):,-len(C_dd_in):] = C_dd_in
+                        C_vm[:len(C_mm),:len(C_mm)] = C_mm
+                        C_vm[:len(C_mm),-len(C_dd_in):] = C_dm
+                        C_vm[-len(C_dd_in):,:len(C_mm)] = C_dm.T
+                        v_cond_var = m_DSS[stepped_previously,realization].reshape(-1,1)
+                        v_cond_var = np.vstack((v_cond_var,observations.reshape(-1,1)))
+                    else:
+                        v_cond_var = m_DSS[stepped_previously,realization].reshape(-1,1)
+                        c_vm = c_mm
+                        C_vm = C_mm
+
+                elif sim_stochastic == False:
                     c_dm = C_dm_all[step,:].reshape(-1,1)
 
                     if len(stepped_previously) >= 1:
@@ -1371,6 +1402,7 @@ class SDSS(MiClass):
                         v_cond_var = np.vstack((v_cond_var,observations.reshape(-1,1)))
                     else:
                         v_cond_var = observations.reshape(-1,1)
+
                 else:
                     if len_stepped > 1:
                         v_cond_var = m_DSS[stepped_previously,realization].reshape(-1,1)
@@ -1478,30 +1510,30 @@ class SDSS(MiClass):
 
         self.m_DSS = m_DSS
 
-        self.m_DSS_pred = G@self.m_DSS
-        self.m_DSS_res = observations.reshape(-1,1) - self.m_DSS_pred
+        if G is not None:
+            self.m_DSS_pred = G@self.m_DSS
+            self.m_DSS_res = observations.reshape(-1,1) - self.m_DSS_pred
+            rmse_leg = np.sqrt(np.mean(np.power(self.m_DSS_res,2),axis=0))
+            print("")
+            print("Seqsim RMSE:\t {}".format(rmse_leg))
+
+            color_rgb = (0.6,0.6,0.6)
+            plt.figure()
+            for i in np.arange(0,N_sim):
+                y,binEdges=np.histogram(self.m_DSS_res[:,[i]],bins=200)
+                bincenters = 0.5*(binEdges[1:]+binEdges[:-1])
+                if i == 0:
+                    plt.plot(bincenters,y,'-',color = color_rgb,label='Seqsim')  
+                else:
+                    plt.plot(bincenters,y,'-',color = color_rgb)  
+                    
+            plt.xlabel("Radial field residuals [nT]")
+            plt.ylabel("Count")
+            plt.show()
 
         m_DSS_mean = np.mean(self.m_DSS,axis=-1).reshape(-1,1)@np.ones((1,N_sim))
         if N_sim > 1:
             self.C_DSS = 1/(N_sim-1)*(self.m_DSS-m_DSS_mean)@(self.m_DSS-m_DSS_mean).T
-
-        rmse_leg = np.sqrt(np.mean(np.power(self.m_DSS_res,2),axis=0))
-        print("")
-        print("Seqsim RMSE:\t {}".format(rmse_leg))
-
-        color_rgb = (0.6,0.6,0.6)
-        plt.figure()
-        for i in np.arange(0,N_sim):
-            y,binEdges=np.histogram(self.m_DSS_res[:,[i]],bins=200)
-            bincenters = 0.5*(binEdges[1:]+binEdges[:-1])
-            if i == 0:
-                plt.plot(bincenters,y,'-',color = color_rgb,label='Seqsim')  
-            else:
-                plt.plot(bincenters,y,'-',color = color_rgb)  
-                
-        plt.xlabel("Radial field residuals [nT]")
-        plt.ylabel("Count")
-        plt.show()
 
 
     def realization_to_sh_coeff(self, r_at, set_nmax = None, set_norm = 1, geomag_scale = True):
