@@ -319,7 +319,9 @@ class SDSS(MiClass):
         linspace = np.linspace(start,1-start,normsize)
         
         # Possible model target histogram cdf/ccdf
-        if model_hist == True:
+        if model_hist.shape[0]>0:
+            data_sorted = np.ravel(model_hist)
+        elif model_hist == True:
             ag,bg = laplace.fit(self.data)
             mod_data = np.random.laplace(ag,bg,size=100000)
             #data_sorted = np.sort(mod_data)
@@ -1242,7 +1244,7 @@ class SDSS(MiClass):
 
     def run_sim(self, N_sim, N_m, C_mm_all, C_dd, C_dm_all, G, observations, training_image, 
                 observations_direct = None, observations_direct_loc = None, observations_direct_e = None, use_sgs = False,
-                collect_all = False, scale_m_i = True, unit_d = False, sense_running_error = False, save_string = "test", 
+                collect_all = False, scale_m_i = True, unit_d = False, sense_running_error = False, notebook_style = True, save_string = "test", 
                 solve_cho = True, sim_stochastic = False, separation = False, separation_lim = None, separation_obj_1 = None, 
                 separation_obj_2 = None):
                 
@@ -1290,7 +1292,8 @@ class SDSS(MiClass):
 
             # Initialize sequential simulation with random start
             step_rnd_path = np.arange(N_m)
-            
+            if observations_direct is not None:
+                step_rnd_path = np.delete(step_rnd_path, observations_direct_loc)
             # Randomize index array to create random path
             random.shuffle(step_rnd_path)
             
@@ -1477,9 +1480,9 @@ class SDSS(MiClass):
                     err_mag_sum += err_mag
                     err_mag_avg = float(err_mag_sum/len_stepped)
                     
-                    mt_util.printProgressBar (len(stepped_previously), N_m, err_mag_avg, subject = ' realization nr. %d' % realization)
+                    mt_util.printProgressBar (len(stepped_previously), N_m, err_mag_avg, subject = ' realization nr. %d' % realization, notebook_style = notebook_style)
                 else:
-                    mt_util.printProgressBar (len(stepped_previously), N_m, subject = ' realization nr. %d' % realization)
+                    mt_util.printProgressBar (len(stepped_previously), N_m, subject = ' realization nr. %d' % realization,  notebook_style = notebook_style)
 
             # End timing
             t1 = time.time()
