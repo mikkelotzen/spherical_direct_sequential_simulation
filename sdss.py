@@ -203,6 +203,17 @@ class SDSS(MiClass):
         # Load Gauss coefficients from data files
         if np.logical_or(self.sim_type == "core", self.sim_type == "sat"):
             Gauss_in = np.loadtxt('mikkel_tools/models_shc/Julien_Gauss_JFM_E-8_snap.dat')
+        elif self.sim_type == "core_alt":
+            import hdf5storage
+            #g_ens = np.genfromtxt("mikkel_tools/models_shc/gnm_midpath.dat").T*10**9
+            g_ens = -(hdf5storage.loadmat("mikkel_tools/models_shc/Gauss_Bsurf_2021.mat")["gnm"].T)[:,:].copy()
+            self.ensemble_B(g_ens, nmax = self.N_SH, r_at = self.r_cmb, grid_type = "glq")
+            self.m_ens = self.B_ensemble[:,0,:].copy()[:,200:]
+            var_ens = np.var(self.m_ens, axis=0)
+            idx_close_to_var = np.argwhere(np.logical_and(var_ens>0.9995*np.mean(var_ens), var_ens<1.0005*np.mean(var_ens)))
+            g = np.ravel(g_ens[:,idx_close_to_var[-1]])
+            N_SH_max = self.N_SH
+            self.ens_idx = int(idx_close_to_var[-1])
 
         elif self.sim_type == "core_ens":
             g_ens = np.genfromtxt("mikkel_tools/models_shc/gnm_midpath.dat").T*10**9
@@ -264,7 +275,7 @@ class SDSS(MiClass):
         else:
             Gauss_in = np.loadtxt(args[0], comments='%')
 
-        if np.logical_and.reduce((self.sim_type != "separation", self.sim_type != "core_ens", self.sim_type != "lith_ens")):
+        if np.logical_and.reduce((self.sim_type != "separation", self.sim_type != "core_ens", self.sim_type != "lith_ens", self.sim_type != "core_alt")):
             # Compute Gauss coefficients as vector
             g = mt_util.gauss_vector(Gauss_in, self.N_SH, i_n = 2, i_m = 3)
             N_SH_max = self.N_SH
@@ -319,7 +330,7 @@ class SDSS(MiClass):
         linspace = np.linspace(start,1-start,normsize)
         
         # Possible model target histogram cdf/ccdf
-        if model_hist.shape[0]>0:
+        if isinstance(model_hist, str) is False:
             data_sorted = np.ravel(model_hist)
         elif model_hist == True:
             ag,bg = laplace.fit(self.data)
@@ -973,6 +984,9 @@ class SDSS(MiClass):
         # g ensemble and parameters
         if self.sim_type == "core_ens":
             g_ens = np.genfromtxt("mikkel_tools/models_shc/gnm_midpath.dat").T*10**9
+        elif self.sim_type == "core_alt":
+            import hdf5storage
+            g_ens = -(hdf5storage.loadmat("mikkel_tools/models_shc/Gauss_Bsurf_2021.mat")["gnm"].T)[:,:].copy()
         elif self.sim_type == "lith_ens":
             #g_ens = np.load("mikkel_tools/models_shc/lithosphere_g_in_rotated.npy")
             g_ens = np.load("mikkel_tools/models_shc/LiP_ensemble_N500_n120_p05_vary_crust.npy")
@@ -980,6 +994,8 @@ class SDSS(MiClass):
         g_ens = g_ens[:mt_util.shc_vec_len(self.N_SH),:]
 
         if self.sim_type == "core_ens":
+            g_cut = g_ens[:self.N_SH*(2+self.N_SH),N_cut:] # Truncate g
+        elif self.sim_type == "core_alt":
             g_cut = g_ens[:self.N_SH*(2+self.N_SH),N_cut:] # Truncate g
         elif self.sim_type == "lith_ens":
             #g_cut = g_ens[:self.N_SH*(2+self.N_SH),::self.lith_ens_cut]
@@ -1481,6 +1497,8 @@ class SDSS(MiClass):
                     err_mag_avg = float(err_mag_sum/len_stepped)
                     
                     mt_util.printProgressBar (len(stepped_previously), N_m, err_mag_avg, subject = ' realization nr. %d' % realization, notebook_style = notebook_style)
+                elif sense_running_error == None:
+                    pass
                 else:
                     mt_util.printProgressBar (len(stepped_previously), N_m, subject = ' realization nr. %d' % realization,  notebook_style = notebook_style)
 
@@ -1520,19 +1538,19 @@ class SDSS(MiClass):
             print("")
             print("Seqsim RMSE:\t {}".format(rmse_leg))
 
-            color_rgb = (0.6,0.6,0.6)
-            plt.figure()
-            for i in np.arange(0,N_sim):
-                y,binEdges=np.histogram(self.m_DSS_res[:,[i]],bins=200)
-                bincenters = 0.5*(binEdges[1:]+binEdges[:-1])
-                if i == 0:
-                    plt.plot(bincenters,y,'-',color = color_rgb,label='Seqsim')  
-                else:
-                    plt.plot(bincenters,y,'-',color = color_rgb)  
+            # color_rgb = (0.6,0.6,0.6)
+            # plt.figure()
+            # for i in np.arange(0,N_sim):
+            #     y,binEdges=np.histogram(self.m_DSS_res[:,[i]],bins=200)
+            #     bincenters = 0.5*(binEdges[1:]+binEdges[:-1])
+            #     if i == 0:
+            #         plt.plot(bincenters,y,'-',color = color_rgb,label='Seqsim')  
+            #     else:
+            #         plt.plot(bincenters,y,'-',color = color_rgb)  
                     
-            plt.xlabel("Radial field residuals [nT]")
-            plt.ylabel("Count")
-            plt.show()
+            # plt.xlabel("Radial field residuals [nT]")
+            # plt.ylabel("Count")
+            # plt.show()
 
         m_DSS_mean = np.mean(self.m_DSS,axis=-1).reshape(-1,1)@np.ones((1,N_sim))
         if N_sim > 1:
@@ -1770,7 +1788,7 @@ class SDSS(MiClass):
         del self.C_mm_all
         del self.C_dm_all
         del self.C_dd
-        if np.logical_or(self.sim_type == "core_ens",self.sim_type == "lith_ens"):
+        if np.logical_or.reduce((self.sim_type == "core_ens", self.sim_type == "core_alt", self.sim_type == "lith_ens")):
             del self.C_ens_tap
             del self.m_ens
 
