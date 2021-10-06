@@ -1241,7 +1241,8 @@ class SDSS(MiClass):
         nearest = np.unravel_index(np.argmin(distance),self.CQF_mean.shape)
         idx_n = nearest[0]
         idx_v = nearest[-1]
-
+        if idx_v > 50:
+            print(idx_v)
         m_i = self.CQF_dist[idx_n,idx_v,np.random.randint(0,self.condtab_normsize,size=1)]
 
         if scaling == True:
