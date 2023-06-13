@@ -252,6 +252,43 @@ class SDSS(MiClass):
             N_SH_max = self.N_SH
             self.ens_idx = int(idx_close_to_var[-1])
 
+        elif self.sim_type == "lith_ens_alt":
+            g_ens = np.load("mikkel_tools/models_shc/LiP_ensemble_N50000_n120_p05_vary_crust_sh.npy")[:,::10]
+            g_ens = g_ens[:mt_util.shc_vec_len(self.N_SH),:]
+
+            self.ensemble_B(g_ens, nmax = self.N_SH, r_at = self.a, grid_type = "glq")
+            self.m_ens = self.B_ensemble[:,0,:].copy()
+
+            ens_max = np.max(self.m_ens, axis=0)
+
+            idx_close_to_meanmax = np.argwhere(np.logical_and(ens_max>0.95*np.mean(ens_max), ens_max<1.05*np.mean(ens_max)))
+
+            #g = np.ravel(g_ens[:,idx_close_to_meanmax[-1]])
+            
+            N_SH_max = self.N_SH
+            self.ens_idx = int(idx_close_to_meanmax[-1])
+
+            g_ens = np.delete(g_ens, self.ens_idx, 1)
+            g = np.mean(g_ens,axis=1)
+
+
+        elif self.sim_type == "lith_ens_alt_synth_truth":
+            g_ens = np.load("mikkel_tools/models_shc/LiP_ensemble_N50000_n120_p05_vary_crust_sh.npy")[:,::10]
+            g_ens = g_ens[:mt_util.shc_vec_len(self.N_SH),:]
+
+            self.ensemble_B(g_ens, nmax = self.N_SH, r_at = self.a, grid_type = "glq")
+            self.m_ens = self.B_ensemble[:,0,:].copy()
+
+            ens_max = np.max(self.m_ens, axis=0)
+
+            idx_close_to_meanmax = np.argwhere(np.logical_and(ens_max>0.95*np.mean(ens_max), ens_max<1.05*np.mean(ens_max)))
+
+            g = np.ravel(g_ens[:,idx_close_to_meanmax[-1]])
+            
+            N_SH_max = self.N_SH
+            self.ens_idx = int(idx_close_to_meanmax[-1])
+
+
         elif self.sim_type == "surface":
             Gauss_in = np.loadtxt('mikkel_tools/models_shc/Masterton_13470_total_it1_0.glm')
 
@@ -275,7 +312,8 @@ class SDSS(MiClass):
         else:
             Gauss_in = np.loadtxt(args[0], comments='%')
 
-        if np.logical_and.reduce((self.sim_type != "separation", self.sim_type != "core_ens", self.sim_type != "lith_ens", self.sim_type != "core_alt")):
+        if np.logical_and.reduce((self.sim_type != "separation", self.sim_type != "core_ens", self.sim_type != "lith_ens", 
+                                  self.sim_type != "lith_ens_alt", self.sim_type != "lith_ens_alt_synth_truth", self.sim_type != "core_alt")):
             # Compute Gauss coefficients as vector
             g = mt_util.gauss_vector(Gauss_in, self.N_SH, i_n = 2, i_m = 3)
             N_SH_max = self.N_SH
@@ -1792,6 +1830,9 @@ class SDSS(MiClass):
         if np.logical_or.reduce((self.sim_type == "core_ens", self.sim_type == "core_alt", self.sim_type == "lith_ens")):
             del self.C_ens_tap
             del self.m_ens
+
+        #if self.sim_type == "lith_ens_alt":
+        #    del self.m_ens
 
         # SAVE RESULT
         print("\nSaving job")
